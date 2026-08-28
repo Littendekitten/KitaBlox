@@ -2,30 +2,128 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>KitaBlox - Infinite World</title>
+  <title>KitaBlox - Multiplayer Voxel Sandbox</title>
   <style>
-    body { margin: 0; overflow: hidden; font-family: sans-serif; background: #000; }
+    * { box-sizing: border-box; user-select: none; }
+    body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #111; }
+    
+    /* Crosshair */
     #crosshair {
       position: absolute; top: 50%; left: 50%;
       width: 8px; height: 8px;
       background: white; border-radius: 50%;
       transform: translate(-50%, -50%); pointer-events: none;
-      border: 1px solid black;
+      border: 1px solid black; z-index: 5; display: none;
     }
+
+    /* Main Menu / World Creation Screen */
+    #menu-overlay {
+      position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(15, 23, 42, 0.95);
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      z-index: 100; color: white;
+    }
+    .menu-card {
+      background: #1e293b; padding: 30px; border-radius: 12px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5); width: 360px; text-align: center;
+      border: 1px solid #334155;
+    }
+    .menu-card h1 { color: #7ec850; margin: 0 0 5px 0; font-size: 32px; letter-spacing: 1px; }
+    .menu-card p { color: #94a3b8; font-size: 14px; margin-bottom: 20px; }
+    .input-group { margin-bottom: 15px; text-align: left; }
+    .input-group label { display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 5px; text-transform: uppercase; font-weight: bold; }
+    .input-group input, .input-group select {
+      width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #475569;
+      background: #0f172a; color: white; font-size: 14px; outline: none;
+    }
+    .btn-play {
+      width: 100%; padding: 12px; background: #7ec850; border: none; border-radius: 6px;
+      color: #0f172a; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.2s;
+    }
+    .btn-play:hover { background: #68b03c; }
+
+    /* Controls HUD */
     #instructions {
       position: absolute; top: 20px; left: 20px;
       color: white; background: rgba(0,0,0,0.6); padding: 12px; border-radius: 6px;
+      font-size: 13px; z-index: 5; display: none;
     }
+
+    /* Hotbar UI */
+    #hotbar-container {
+      position: absolute; bottom: 20px; left: 50%;
+      transform: translateX(-50%);
+      display: none; gap: 6px; background: rgba(0,0,0,0.5);
+      padding: 6px; border-radius: 8px; border: 2px solid rgba(255,255,255,0.2);
+      z-index: 10;
+    }
+    .hotbar-slot {
+      width: 48px; height: 48px;
+      background: rgba(255,255,255,0.1);
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 6px; display: flex; align-items: center; justify-content: center;
+      color: white; font-size: 12px; font-weight: bold; position: relative;
+    }
+    .hotbar-slot.active {
+      border-color: #7ec850; background: rgba(126, 200, 80, 0.2);
+      box-shadow: 0 0 10px rgba(126, 200, 80, 0.5);
+    }
+    .slot-num { position: absolute; top: 2px; left: 4px; font-size: 10px; color: #aaa; }
   </style>
 </head>
 <body>
+
+  <!-- Main Menu / World Creation -->
+  <div id="menu-overlay">
+    <div class="menu-card">
+      <h1>KitaBlox</h1>
+      <p>Multiplayer Voxel Sandbox</p>
+      
+      <div class="input-group">
+        <label>Player Name</label>
+        <input type="text" id="player-name" value="Player123" maxlength="15">
+      </div>
+
+      <div class="input-group">
+        <label>Select / Join World</label>
+        <select id="world-select">
+          <option value="main_lobby">Main Lobby</option>
+          <option value="survival_world">Survival World</option>
+          <option value="creative_sandbox">Creative Sandbox</option>
+          <option value="custom">-- Create Custom World Seed --</option>
+        </select>
+      </div>
+
+      <div class="input-group" id="custom-seed-group" style="display:none;">
+        <label>Custom World Seed / Name</label>
+        <input type="text" id="world-seed" placeholder="e.g. MyAwesomeWorld">
+      </div>
+
+      <button class="btn-play" id="start-game-btn">Enter World</button>
+    </div>
+  </div>
+
   <div id="crosshair"></div>
+  
   <div id="instructions">
-    <b style="font-size: 18px; color: #7ec850;">Welcome to KitaBlox!</b><br><br>
-    <b>Click screen to Play</b><br>
+    <b style="color: #7ec850;">KitaBlox Controls</b><br>
     WASD: Move<br>
     SPACE: Jump<br>
-    MOUSE: Look around
+    1-9 / Scroll: Select Hotbar Slot<br>
+    Click: Lock Mouse
+  </div>
+
+  <!-- 9-Slot Empty Hotbar -->
+  <div id="hotbar-container">
+    <div class="hotbar-slot active" data-slot="0"><span class="slot-num">1</span></div>
+    <div class="hotbar-slot" data-slot="1"><span class="slot-num">2</span></div>
+    <div class="hotbar-slot" data-slot="2"><span class="slot-num">3</span></div>
+    <div class="hotbar-slot" data-slot="3"><span class="slot-num">4</span></div>
+    <div class="hotbar-slot" data-slot="4"><span class="slot-num">5</span></div>
+    <div class="hotbar-slot" data-slot="5"><span class="slot-num">6</span></div>
+    <div class="hotbar-slot" data-slot="6"><span class="slot-num">7</span></div>
+    <div class="hotbar-slot" data-slot="7"><span class="slot-num">8</span></div>
+    <div class="hotbar-slot" data-slot="8"><span class="slot-num">9</span></div>
   </div>
 
   <!-- Load Three.js & Controls -->
@@ -37,7 +135,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
   <script>
-    // 1. FIREBASE SETUP
+    // 1. FIREBASE REALTIME DATABASE SETUP
     const firebaseConfig = {
       apiKey: "YOUR_API_KEY",
       authDomain: "YOUR_PROJECT.firebaseapp.com",
@@ -50,29 +148,72 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    // 2. THREE.JS ENGINE & OPTIMIZED LIGHTING
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87ceeb); // Sky blue
-    scene.fog = new THREE.FogExp2(0x87ceeb, 0.035);
+    // 2. UI & WORLD SELECTION LOGIC
+    let currentWorldId = "main_lobby";
+    let playerName = "Player123";
+    let activeHotbarSlot = 0;
 
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
-    const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // Cap pixel density to reduce lag
-    document.body.appendChild(renderer.domElement);
+    const worldSelect = document.getElementById('world-select');
+    const customSeedGroup = document.getElementById('custom-seed-group');
 
-    const light = new THREE.DirectionalLight(0xffffff, 0.8);
-    light.position.set(20, 40, 20);
-    scene.add(light);
-    scene.add(new THREE.AmbientLight(0x707070));
+    worldSelect.addEventListener('change', (e) => {
+      customSeedGroup.style.display = e.target.value === 'custom' ? 'block' : 'none';
+    });
 
-    // 3. MATERIALS & GEOMETRY
+    document.getElementById('start-game-btn').addEventListener('click', () => {
+      playerName = document.getElementById('player-name').value || "Player";
+      const selected = worldSelect.value;
+      if (selected === 'custom') {
+        const seedInput = document.getElementById('world-seed').value.trim();
+        currentWorldId = seedInput ? seedInput.toLowerCase().replace(/[^a-z0-9]/g, "_") : "custom_world";
+      } else {
+        currentWorldId = selected;
+      }
+
+      document.getElementById('menu-overlay').style.display = 'none';
+      document.getElementById('crosshair').style.display = 'block';
+      document.getElementById('instructions').style.display = 'block';
+      document.getElementById('hotbar-container').style.display = 'flex';
+
+      initGame();
+    });
+
+    // HOTBAR NAVIGATION
+    const slots = document.querySelectorAll('.hotbar-slot');
+    function selectSlot(index) {
+      if (index < 0) index = 8;
+      if (index > 8) index = 0;
+      activeHotbarSlot = index;
+      slots.forEach((s, i) => {
+        if (i === activeHotbarSlot) s.classList.add('active');
+        else s.classList.remove('active');
+      });
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key >= '1' && e.key <= '9') {
+        selectSlot(parseInt(e.key) - 1);
+      }
+    });
+
+    document.addEventListener('wheel', (e) => {
+      if (e.deltaY > 0) selectSlot(activeHotbarSlot + 1);
+      else selectSlot(activeHotbarSlot - 1);
+    });
+
+    // 3. THREE.JS ENGINE SETUP
+    let scene, camera, renderer, controls;
     const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-    const grassMat = new THREE.MeshLambertMaterial({ color: 0x7ec850 }); // Light Green
-    const dirtMat  = new THREE.MeshLambertMaterial({ color: 0x9b7653 }); // Light Brown
+    const grassMat = new THREE.MeshLambertMaterial({ color: 0x7ec850 });
+    const dirtMat  = new THREE.MeshLambertMaterial({ color: 0x9b7653 });
 
-    // 4. TERRAIN GENERATION (INSTANCED MESH FOR ZERO LAG)
-    const SEED = Math.random() * 100;
+    let SEED = 12345;
+    function stringToSeed(str) {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) hash = (hash << 5) - hash + str.charCodeAt(i);
+      return Math.abs(hash);
+    }
+
     function getTerrainHeight(x, z) {
       const scale1 = 0.08;
       const scale2 = 0.03;
@@ -82,10 +223,9 @@
     }
 
     const CHUNK_SIZE = 16;
-    const RENDER_DISTANCE = 1; // Small render distance prevents stutter
+    const RENDER_DISTANCE = 1;
     const loadedChunks = {};
     const worldBlocks = {};
-
     const dummy = new THREE.Object3D();
 
     function generateChunk(chunkX, chunkZ) {
@@ -96,7 +236,6 @@
       const startZ = chunkZ * CHUNK_SIZE;
       const totalBlocksPerChunk = CHUNK_SIZE * CHUNK_SIZE;
 
-      // 1 InstancedMesh for Grass, 1 InstancedMesh for Dirt per chunk
       const grassMesh = new THREE.InstancedMesh(boxGeo, grassMat, totalBlocksPerChunk);
       const dirtMesh = new THREE.InstancedMesh(boxGeo, dirtMat, totalBlocksPerChunk * 2);
 
@@ -108,12 +247,10 @@
           const height = getTerrainHeight(x, z);
           worldBlocks[`${x},${z}`] = height;
 
-          // Top Grass Block
           dummy.position.set(x, height, z);
           dummy.updateMatrix();
           grassMesh.setMatrixAt(grassIndex++, dummy.matrix);
 
-          // 2 Dirt Blocks Below
           for (let y = height - 1; y >= height - 2; y--) {
             dummy.position.set(x, y, z);
             dummy.updateMatrix();
@@ -144,92 +281,117 @@
       }
     }
 
-    // 5. PHYSICS & RIGID MOVEMENT (NO AUTO-JUMP & BALANCED JUMP)
-    const controls = new THREE.PointerLockControls(camera, document.body);
-    document.body.addEventListener('click', () => controls.lock());
-    controls.addEventListener('lock', () => document.getElementById('instructions').style.display = 'none');
-    controls.addEventListener('unlock', () => document.getElementById('instructions').style.display = 'block');
-
+    // 4. GAME INITIALIZATION & PHYSICS
     let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
-    let velocityY = 0;
-    let canJump = false;
-    const GRAVITY = -0.009;   // Smoother gravity
-    const JUMP_FORCE = 0.14;  // Normal jump height (about 1.2 blocks high)
+    let velocityY = 0, canJump = false;
+    const GRAVITY = -0.009;
+    const JUMP_FORCE = 0.14;
     const PLAYER_HEIGHT = 1.8;
 
-    camera.position.set(0, getTerrainHeight(0, 0) + 5, 0);
+    function initGame() {
+      SEED = stringToSeed(currentWorldId);
 
-    document.addEventListener('keydown', (e) => {
-      if (e.code === 'KeyW') moveForward = true;
-      if (e.code === 'KeyS') moveBackward = true;
-      if (e.code === 'KeyA') moveLeft = true;
-      if (e.code === 'KeyD') moveRight = true;
-      if (e.code === 'Space' && canJump) {
-        velocityY = JUMP_FORCE;
-        canJump = false;
-      }
-    });
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x87ceeb);
+      scene.fog = new THREE.FogExp2(0x87ceeb, 0.035);
 
-    document.addEventListener('keyup', (e) => {
-      if (e.code === 'KeyW') moveForward = false;
-      if (e.code === 'KeyS') moveBackward = false;
-      if (e.code === 'KeyA') moveLeft = false;
-      if (e.code === 'KeyD') moveRight = false;
-    });
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
+      renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+      document.body.appendChild(renderer.domElement);
 
-    // 6. MULTIPLAYER SYNC (THROTTLED TO PREVENT NETWORK LAG)
-    const playerId = 'player_' + Math.floor(Math.random() * 10000);
+      const light = new THREE.DirectionalLight(0xffffff, 0.8);
+      light.position.set(20, 40, 20);
+      scene.add(light);
+      scene.add(new THREE.AmbientLight(0x707070));
+
+      controls = new THREE.PointerLockControls(camera, document.body);
+      document.body.addEventListener('click', () => {
+        if (document.getElementById('menu-overlay').style.display === 'none') {
+          controls.lock();
+        }
+      });
+
+      camera.position.set(0, getTerrainHeight(0, 0) + 5, 0);
+
+      document.addEventListener('keydown', (e) => {
+        if (e.code === 'KeyW') moveForward = true;
+        if (e.code === 'KeyS') moveBackward = true;
+        if (e.code === 'KeyA') moveLeft = true;
+        if (e.code === 'KeyD') moveRight = true;
+        if (e.code === 'Space' && canJump) {
+          velocityY = JUMP_FORCE;
+          canJump = false;
+        }
+      });
+
+      document.addEventListener('keyup', (e) => {
+        if (e.code === 'KeyW') moveForward = false;
+        if (e.code === 'KeyS') moveBackward = false;
+        if (e.code === 'KeyA') moveLeft = false;
+        if (e.code === 'KeyD') moveRight = false;
+      });
+
+      setupMultiplayer();
+      animate();
+    }
+
+    // 5. MULTIPLAYER ISOLATED BY WORLD ID
+    let playerId = 'player_' + Math.floor(Math.random() * 10000);
     const otherPlayers = {};
     let lastNetworkUpdate = 0;
 
-    function updateMultiplayer() {
-      const now = Date.now();
-      // Only send network data 20 times per second
-      if (now - lastNetworkUpdate > 50) {
-        db.ref('players/' + playerId).set({
-          x: camera.position.x,
-          y: camera.position.y,
-          z: camera.position.z
-        });
-        lastNetworkUpdate = now;
-      }
-    }
+    function setupMultiplayer() {
+      const worldPlayersRef = db.ref(`worlds/${currentWorldId}/players`);
 
-    db.ref('players').on('value', (snapshot) => {
-      const data = snapshot.val();
-      for (let id in data) {
-        if (id !== playerId) {
-          if (!otherPlayers[id]) {
-            const avatar = new THREE.Mesh(
-              new THREE.BoxGeometry(0.8, 1.8, 0.8),
-              new THREE.MeshLambertMaterial({ color: 0xe74c3c })
-            );
-            scene.add(avatar);
-            otherPlayers[id] = avatar;
-          }
-          otherPlayers[id].position.set(data[id].x, data[id].y, data[id].z);
+      function updateMultiplayer() {
+        const now = Date.now();
+        if (now - lastNetworkUpdate > 50) {
+          worldPlayersRef.child(playerId).set({
+            name: playerName,
+            x: camera.position.x,
+            y: camera.position.y,
+            z: camera.position.z
+          });
+          lastNetworkUpdate = now;
         }
       }
-    });
 
-    db.ref('players/' + playerId).onDisconnect().remove();
+      worldPlayersRef.on('value', (snapshot) => {
+        const data = snapshot.val();
+        for (let id in data) {
+          if (id !== playerId) {
+            if (!otherPlayers[id]) {
+              const avatar = new THREE.Mesh(
+                new THREE.BoxGeometry(0.8, 1.8, 0.8),
+                new THREE.MeshLambertMaterial({ color: 0xe74c3c })
+              );
+              scene.add(avatar);
+              otherPlayers[id] = avatar;
+            }
+            otherPlayers[id].position.set(data[id].x, data[id].y, data[id].z);
+          }
+        }
+      });
 
-    // 7. GAME LOOP
+      worldPlayersRef.child(playerId).onDisconnect().remove();
+      window.updateMultiplayerFunc = updateMultiplayer;
+    }
+
+    // 6. GAME LOOP
     function animate() {
       requestAnimationFrame(animate);
 
-      if (controls.isLocked) {
-        // Horizontal Movement
+      if (controls && controls.isLocked) {
         if (moveForward) controls.moveForward(0.1);
         if (moveBackward) controls.moveForward(-0.1);
         if (moveLeft) controls.moveRight(-0.1);
         if (moveRight) controls.moveRight(0.1);
 
-        // Apply Gravity & Manual Jump
         velocityY += GRAVITY;
         camera.position.y += velocityY;
 
-        // Ground Collision & Block Wall Check (NO AUTO-JUMP)
         const currentX = Math.round(camera.position.x);
         const currentZ = Math.round(camera.position.z);
         const groundHeight = worldBlocks[`${currentX},${currentZ}`] ?? 0;
@@ -242,20 +404,21 @@
         }
 
         updateChunks();
-        updateMultiplayer();
+        if (window.updateMultiplayerFunc) window.updateMultiplayerFunc();
       }
 
-      renderer.render(scene, camera);
+      if (renderer && scene && camera) {
+        renderer.render(scene, camera);
+      }
     }
 
-    // Resize Handling
     window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
+      if (camera && renderer) {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
     });
-
-    animate();
   </script>
 </body>
 </html>
