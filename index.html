@@ -5,70 +5,77 @@
   <title>KitaBlox - Multiplayer Voxel Sandbox</title>
   <style>
     * { box-sizing: border-box; user-select: none; }
-    body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #111; }
+    body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0f172a; }
     
     /* Crosshair */
     #crosshair {
       position: absolute; top: 50%; left: 50%;
-      width: 8px; height: 8px;
-      background: white; border-radius: 50%;
+      width: 10px; height: 10px;
+      border: 2px solid rgba(255, 255, 255, 0.8);
+      border-radius: 50%;
       transform: translate(-50%, -50%); pointer-events: none;
-      border: 1px solid black; z-index: 5; display: none;
+      z-index: 5; display: none;
+      box-shadow: 0 0 4px rgba(0,0,0,0.5);
     }
 
-    /* Main Menu / World Creation Screen */
+    /* Main Menu Overlay */
     #menu-overlay {
       position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
-      background: rgba(15, 23, 42, 0.95);
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(8px);
       display: flex; flex-direction: column; justify-content: center; align-items: center;
       z-index: 100; color: white;
     }
     .menu-card {
-      background: #1e293b; padding: 30px; border-radius: 12px;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.5); width: 360px; text-align: center;
+      background: #1e293b; padding: 32px; border-radius: 16px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.6); width: 380px; text-align: center;
       border: 1px solid #334155;
     }
-    .menu-card h1 { color: #7ec850; margin: 0 0 5px 0; font-size: 32px; letter-spacing: 1px; }
-    .menu-card p { color: #94a3b8; font-size: 14px; margin-bottom: 20px; }
-    .input-group { margin-bottom: 15px; text-align: left; }
-    .input-group label { display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 5px; text-transform: uppercase; font-weight: bold; }
+    .menu-card h1 { color: #7ec850; margin: 0 0 5px 0; font-size: 36px; letter-spacing: 1px; font-weight: 800; }
+    .menu-card p { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
+    .input-group { margin-bottom: 16px; text-align: left; }
+    .input-group label { display: block; font-size: 11px; color: #cbd5e1; margin-bottom: 6px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; }
     .input-group input, .input-group select {
-      width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #475569;
-      background: #0f172a; color: white; font-size: 14px; outline: none;
+      width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #475569;
+      background: #0f172a; color: white; font-size: 14px; outline: none; transition: 0.2s;
     }
+    .input-group input:focus, .input-group select:focus { border-color: #7ec850; }
     .btn-play {
-      width: 100%; padding: 12px; background: #7ec850; border: none; border-radius: 6px;
+      width: 100%; padding: 14px; background: #7ec850; border: none; border-radius: 8px;
       color: #0f172a; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.2s;
+      margin-top: 10px;
     }
-    .btn-play:hover { background: #68b03c; }
+    .btn-play:hover { background: #68b03c; transform: translateY(-1px); }
 
     /* Controls HUD */
     #instructions {
       position: absolute; top: 20px; left: 20px;
-      color: white; background: rgba(0,0,0,0.6); padding: 12px; border-radius: 6px;
-      font-size: 13px; z-index: 5; display: none;
+      color: white; background: rgba(0,0,0,0.5); padding: 14px; border-radius: 8px;
+      font-size: 13px; z-index: 5; display: none; backdrop-filter: blur(4px);
+      border: 1px solid rgba(255,255,255,0.1);
     }
 
     /* Hotbar UI */
     #hotbar-container {
       position: absolute; bottom: 20px; left: 50%;
       transform: translateX(-50%);
-      display: none; gap: 6px; background: rgba(0,0,0,0.5);
-      padding: 6px; border-radius: 8px; border: 2px solid rgba(255,255,255,0.2);
-      z-index: 10;
+      display: none; gap: 8px; background: rgba(15, 23, 42, 0.6);
+      padding: 8px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.15);
+      z-index: 10; backdrop-filter: blur(6px);
     }
     .hotbar-slot {
-      width: 48px; height: 48px;
-      background: rgba(255,255,255,0.1);
-      border: 2px solid rgba(255,255,255,0.3);
-      border-radius: 6px; display: flex; align-items: center; justify-content: center;
-      color: white; font-size: 12px; font-weight: bold; position: relative;
+      width: 50px; height: 50px;
+      background: rgba(255,255,255,0.05);
+      border: 2px solid rgba(255,255,255,0.15);
+      border-radius: 8px; display: flex; align-items: center; justify-content: center;
+      color: white; font-size: 12px; font-weight: bold; position: relative; transition: 0.15s;
     }
     .hotbar-slot.active {
-      border-color: #7ec850; background: rgba(126, 200, 80, 0.2);
-      box-shadow: 0 0 10px rgba(126, 200, 80, 0.5);
+      border-color: #7ec850; background: rgba(126, 200, 80, 0.25);
+      box-shadow: 0 0 12px rgba(126, 200, 80, 0.4);
+      transform: scale(1.05);
     }
-    .slot-num { position: absolute; top: 2px; left: 4px; font-size: 10px; color: #aaa; }
+    .slot-num { position: absolute; top: 3px; left: 5px; font-size: 10px; color: #94a3b8; }
   </style>
 </head>
 <body>
@@ -99,7 +106,7 @@
         <input type="text" id="world-seed" placeholder="e.g. MyAwesomeWorld">
       </div>
 
-      <button class="btn-play" id="start-game-btn">Enter World</button>
+      <button class="btn-play" id="start-game-btn">Play / Resume Game</button>
     </div>
   </div>
 
@@ -108,9 +115,9 @@
   <div id="instructions">
     <b style="color: #7ec850;">KitaBlox Controls</b><br>
     WASD: Move<br>
-    SPACE: Jump<br>
-    1-9 / Scroll: Select Hotbar Slot<br>
-    Click: Lock Mouse
+    SPACE (Hold): Jump / Auto-Jump<br>
+    ESC: Main Menu / Pause<br>
+    1-9 / Scroll: Select Hotbar
   </div>
 
   <!-- 9-Slot Empty Hotbar -->
@@ -135,7 +142,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
   <script>
-    // 1. FIREBASE REALTIME DATABASE SETUP
+    // 1. FIREBASE SETUP
     const firebaseConfig = {
       apiKey: "YOUR_API_KEY",
       authDomain: "YOUR_PROJECT.firebaseapp.com",
@@ -152,6 +159,7 @@
     let currentWorldId = "main_lobby";
     let playerName = "Player123";
     let activeHotbarSlot = 0;
+    let gameInitialized = false;
 
     const worldSelect = document.getElementById('world-select');
     const customSeedGroup = document.getElementById('custom-seed-group');
@@ -175,10 +183,14 @@
       document.getElementById('instructions').style.display = 'block';
       document.getElementById('hotbar-container').style.display = 'flex';
 
-      initGame();
+      if (!gameInitialized) {
+        initGame();
+        gameInitialized = true;
+      }
+      controls.lock();
     });
 
-    // HOTBAR NAVIGATION
+    // HOTBAR SELECTION
     const slots = document.querySelectorAll('.hotbar-slot');
     function selectSlot(index) {
       if (index < 0) index = 8;
@@ -191,9 +203,7 @@
     }
 
     document.addEventListener('keydown', (e) => {
-      if (e.key >= '1' && e.key <= '9') {
-        selectSlot(parseInt(e.key) - 1);
-      }
+      if (e.key >= '1' && e.key <= '9') selectSlot(parseInt(e.key) - 1);
     });
 
     document.addEventListener('wheel', (e) => {
@@ -204,8 +214,10 @@
     // 3. THREE.JS ENGINE SETUP
     let scene, camera, renderer, controls;
     const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-    const grassMat = new THREE.MeshLambertMaterial({ color: 0x7ec850 });
-    const dirtMat  = new THREE.MeshLambertMaterial({ color: 0x9b7653 });
+    
+    // ENHANCED LIGHTING & STYLIZED COLORS (NO EXTRA LAG)
+    const grassMat = new THREE.MeshLambertMaterial({ color: 0x6bbd45 }); 
+    const dirtMat  = new THREE.MeshLambertMaterial({ color: 0x8a5a36 }); 
 
     let SEED = 12345;
     function stringToSeed(str) {
@@ -281,19 +293,20 @@
       }
     }
 
-    // 4. GAME INITIALIZATION & PHYSICS
+    // 4. PHYSICS & CONTROLS
     let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+    let spaceHeld = false;
     let velocityY = 0, canJump = false;
     const GRAVITY = -0.009;
-    const JUMP_FORCE = 0.14;
+    const JUMP_FORCE = 0.16; // Eeny-beeny tiny higher jump!
     const PLAYER_HEIGHT = 1.8;
 
     function initGame() {
       SEED = stringToSeed(currentWorldId);
 
       scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x87ceeb);
-      scene.fog = new THREE.FogExp2(0x87ceeb, 0.035);
+      scene.background = new THREE.Color(0x78a7ff); // Rich blue sky
+      scene.fog = new THREE.FogExp2(0x78a7ff, 0.03);
 
       camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
       renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
@@ -301,12 +314,22 @@
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
       document.body.appendChild(renderer.domElement);
 
-      const light = new THREE.DirectionalLight(0xffffff, 0.8);
-      light.position.set(20, 40, 20);
-      scene.add(light);
-      scene.add(new THREE.AmbientLight(0x707070));
+      // SUNLIGHT & SHADOW HIGHLIGHTS
+      const sun = new THREE.DirectionalLight(0xffffff, 0.95);
+      sun.position.set(30, 50, 20);
+      scene.add(sun);
+      scene.add(new THREE.AmbientLight(0x8899aa, 0.5));
 
       controls = new THREE.PointerLockControls(camera, document.body);
+      
+      // ESC KEY / UNLOCK RETURN TO MENU
+      controls.addEventListener('unlock', () => {
+        document.getElementById('menu-overlay').style.display = 'flex';
+        document.getElementById('crosshair').style.display = 'none';
+        document.getElementById('instructions').style.display = 'none';
+        document.getElementById('hotbar-container').style.display = 'none';
+      });
+
       document.body.addEventListener('click', () => {
         if (document.getElementById('menu-overlay').style.display === 'none') {
           controls.lock();
@@ -320,10 +343,7 @@
         if (e.code === 'KeyS') moveBackward = true;
         if (e.code === 'KeyA') moveLeft = true;
         if (e.code === 'KeyD') moveRight = true;
-        if (e.code === 'Space' && canJump) {
-          velocityY = JUMP_FORCE;
-          canJump = false;
-        }
+        if (e.code === 'Space') spaceHeld = true;
       });
 
       document.addEventListener('keyup', (e) => {
@@ -331,13 +351,14 @@
         if (e.code === 'KeyS') moveBackward = false;
         if (e.code === 'KeyA') moveLeft = false;
         if (e.code === 'KeyD') moveRight = false;
+        if (e.code === 'Space') spaceHeld = false;
       });
 
       setupMultiplayer();
       animate();
     }
 
-    // 5. MULTIPLAYER ISOLATED BY WORLD ID
+    // 5. MULTIPLAYER SYNC
     let playerId = 'player_' + Math.floor(Math.random() * 10000);
     const otherPlayers = {};
     let lastNetworkUpdate = 0;
@@ -379,28 +400,51 @@
       window.updateMultiplayerFunc = updateMultiplayer;
     }
 
-    // 6. GAME LOOP
+    // 6. GAME LOOP (NO AUTO STEP-UP & HOLD SPACE JUMP)
     function animate() {
       requestAnimationFrame(animate);
 
       if (controls && controls.isLocked) {
+        // Horizontal Movement
+        const prevX = camera.position.x;
+        const prevZ = camera.position.z;
+
         if (moveForward) controls.moveForward(0.1);
         if (moveBackward) controls.moveForward(-0.1);
         if (moveLeft) controls.moveRight(-0.1);
         if (moveRight) controls.moveRight(0.1);
 
+        // STRICT BLOCK SIDE-COLLISION (PREVENTS AUTO STEPPING UP)
+        const checkX = Math.round(camera.position.x);
+        const checkZ = Math.round(camera.position.z);
+        const currentBlockHeight = worldBlocks[`${checkX},${checkZ}`] ?? 0;
+        
+        // If target block top is higher than player feet, block horizontal movement (bump into wall)
+        if (currentBlockHeight + 0.5 > (camera.position.y - PLAYER_HEIGHT)) {
+          camera.position.x = prevX;
+          camera.position.z = prevZ;
+        }
+
+        // Apply Gravity
         velocityY += GRAVITY;
         camera.position.y += velocityY;
 
-        const currentX = Math.round(camera.position.x);
-        const currentZ = Math.round(camera.position.z);
-        const groundHeight = worldBlocks[`${currentX},${currentZ}`] ?? 0;
+        // Ground Check
+        const playerX = Math.round(camera.position.x);
+        const playerZ = Math.round(camera.position.z);
+        const groundHeight = worldBlocks[`${playerX},${playerZ}`] ?? 0;
         const groundY = groundHeight + PLAYER_HEIGHT;
 
         if (camera.position.y <= groundY) {
           camera.position.y = groundY;
           velocityY = 0;
           canJump = true;
+
+          // HOLD SPACEBAR TO CONTINUOUSLY JUMP
+          if (spaceHeld && canJump) {
+            velocityY = JUMP_FORCE;
+            canJump = false;
+          }
         }
 
         updateChunks();
