@@ -67,6 +67,12 @@
       transform: scale(1.1); box-shadow: 0 0 15px rgba(74, 222, 128, 0.3);
     }
     .slot-num { position: absolute; top: 4px; left: 6px; font-size: 10px; color: #94a3b8; }
+
+    #fps-counter {
+      position: absolute; top: 20px; right: 20px; color: #4ade80;
+      font-family: monospace; font-size: 13px; z-index: 5; display: none;
+      background: rgba(15,23,42,0.65); padding: 6px 10px; border-radius: 8px;
+    }
   </style>
 </head>
 <body>
@@ -80,13 +86,15 @@
   </div>
 
   <div id="crosshair"></div>
-  
+  <div id="fps-counter">FPS: --</div>
+
   <div id="hud-instructions">
     <b style="color: #4ade80; font-size: 14px;">Controls</b><br>
     WASD : Move | SPACE : Jump<br>
     Left Click : Break Block<br>
     Right Click : Place Block<br>
-    1-7 / Scroll : Hotbar
+    1-7 / Scroll : Hotbar<br>
+    ESC : Release mouse
   </div>
 
   <div id="hotbar-container">
@@ -162,8 +170,13 @@
     const worldBlocks = {};
     const blockMeshes = {};
     const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+    let meshList = []; // cached array for raycasting, rebuilt only when world changes
 
     function getBlockKey(x, y, z) { return `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`; }
+
+    function rebuildMeshList() {
+      meshList = Object.values(blockMeshes);
+    }
 
     function setBlock(x, y, z, type) {
       const key = getBlockKey(x, y, z);
@@ -182,6 +195,7 @@
         blockMeshes[key] = mesh;
         worldBlocks[key] = type;
       }
+      rebuildMeshList();
     }
 
     function createTree(trX, trY, trZ) {
@@ -202,6 +216,8 @@
     let scene, camera, renderer, controls, raycaster, highlightBox;
     let particles = [];
     let activeBlockType = 1;
+    let lastFrameTime = performance.now();
+    let fpsAccum = 0, fpsFrames = 0;
 
     function init() {
       scene = new THREE.Scene();
@@ -256,10 +272,10 @@
     // 4. PARTICLE EFFECTS
     function spawnBreakParticles(x, y, z, type) {
       const pGeo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
-      const mat = Array.isArray(blockMaterials[type]) ? blockMaterials[type][0] : blockMaterials[type];
+      const pMat = Array.isArray(blockMaterials[type]) ? blockMaterials[type][0] : blockMaterials[type];
 
       for (let i = 0; i < 12; i++) {
-        const p = new THREE.Mesh(pGeo, mat);
+        const p = new THREE.Mesh(pGeo, pMat);
         p.position.set(
           x + (Math.random() - 0.5) * 0.8,
           y + (Math.random() - 0.5) * 0.8,
@@ -305,6 +321,7 @@
         document.getElementById('crosshair').style.display = 'block';
         document.getElementById('hud-instructions').style.display = 'block';
         document.getElementById('hotbar-container').style.display = 'flex';
+        document.getElementById('fps-counter').style.display = 'block';
         controls.lock();
       });
 
@@ -318,7 +335,7 @@
         if (e.code === 'KeyS') moveB = true;
         if (e.code === 'KeyA') moveL = true;
         if (e.code === 'KeyD') moveR = true;
-        if (e.code === 'Space') jumpHeld = true;
+        if (e.code === 'Space') { jumpHeld = true; e.preventDefault(); }
         if (e.key >= '1' && e.key <= '7') selectSlot(parseInt(e.key) - 1);
       });
 
@@ -331,6 +348,7 @@
       });
 
       document.addEventListener('wheel', (e) => {
+        if (!controls.isLocked) return;
         if (e.deltaY > 0) selectSlot((activeBlockType) % 7);
         else selectSlot((activeBlockType - 2 + 7) % 7);
       });
@@ -338,7 +356,7 @@
       document.addEventListener('mousedown', (e) => {
         if (!controls.isLocked) return;
         raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-        const hits = raycaster.intersectObjects(Object.values(blockMeshes));
+        const hits = raycaster.intersectObjects(meshList);
 
         if (hits.length > 0) {
           const hit = hits[0];
@@ -407,6 +425,17 @@
     function animate() {
       requestAnimationFrame(animate);
 
+      // FPS counter
+      const now = performance.now();
+      const dt = now - lastFrameTime;
+      lastFrameTime = now;
+      fpsAccum += dt; fpsFrames++;
+      if (fpsAccum >= 500) {
+        const fps = Math.round((fpsFrames * 1000) / fpsAccum);
+        document.getElementById('fps-counter').textContent = 'FPS: ' + fps;
+        fpsAccum = 0; fpsFrames = 0;
+      }
+
       if (controls.isLocked) {
         // Smooth Friction & Momentum
         velocity.x *= 0.8;
@@ -461,7 +490,7 @@
 
         // Raycast Outline Target
         raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-        const hits = raycaster.intersectObjects(Object.values(blockMeshes));
+        const hits = raycaster.intersectObjects(meshList);
         if (hits.length > 0) {
           highlightBox.position.copy(hits[0].object.position);
           highlightBox.visible = true;
