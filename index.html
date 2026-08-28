@@ -10,18 +10,18 @@
     /* Crosshair */
     #crosshair {
       position: absolute; top: 50%; left: 50%;
-      width: 10px; height: 10px;
-      border: 2px solid rgba(255, 255, 255, 0.8);
+      width: 12px; height: 12px;
+      border: 2px solid rgba(255, 255, 255, 0.9);
       border-radius: 50%;
       transform: translate(-50%, -50%); pointer-events: none;
       z-index: 5; display: none;
-      box-shadow: 0 0 4px rgba(0,0,0,0.5);
+      box-shadow: 0 0 4px rgba(0,0,0,0.6);
     }
 
     /* Main Menu Overlay */
     #menu-overlay {
       position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
-      background: rgba(15, 23, 42, 0.85);
+      background: rgba(15, 23, 42, 0.88);
       backdrop-filter: blur(8px);
       display: flex; flex-direction: column; justify-content: center; align-items: center;
       z-index: 100; color: white;
@@ -68,7 +68,7 @@
       background: rgba(255,255,255,0.05);
       border: 2px solid rgba(255,255,255,0.15);
       border-radius: 8px; display: flex; align-items: center; justify-content: center;
-      color: white; font-size: 12px; font-weight: bold; position: relative; transition: 0.15s;
+      color: white; font-size: 12px; font-weight: bold; position: relative; transition: 015s;
     }
     .hotbar-slot.active {
       border-color: #7ec850; background: rgba(126, 200, 80, 0.25);
@@ -155,7 +155,50 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    // 2. UI & WORLD SELECTION LOGIC
+    // 2. DYNAMIC PROCEDURAL CANVAS TEXTURES (PIXEL ART WITH ZERO LAG)
+    function generateTexture(type) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 16;
+      canvas.height = 16;
+      const ctx = canvas.getContext('2d');
+
+      for (let x = 0; x < 16; x++) {
+        for (let y = 0; y < 16; y++) {
+          let noise = (Math.random() - 0.5) * 20;
+          if (type === 'grass_top') {
+            ctx.fillStyle = `rgb(${110 + noise}, ${190 + noise}, ${65 + noise})`;
+          } else if (type === 'dirt') {
+            ctx.fillStyle = `rgb(${135 + noise}, ${90 + noise}, ${55 + noise})`;
+          } else if (type === 'grass_side') {
+            if (y < 4) {
+              ctx.fillStyle = `rgb(${110 + noise}, ${190 + noise}, ${65 + noise})`;
+            } else {
+              ctx.fillStyle = `rgb(${135 + noise}, ${90 + noise}, ${55 + noise})`;
+            }
+          }
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.NearestFilter;
+      return texture;
+    }
+
+    const grassTopTex = generateTexture('grass_top');
+    const dirtTex     = generateTexture('dirt');
+    const grassSideTex= generateTexture('grass_side');
+
+    const grassSideMat = new THREE.MeshLambertMaterial({ map: grassSideTex });
+    const grassTopMat  = new THREE.MeshLambertMaterial({ map: grassTopTex });
+    const dirtMat      = new THREE.MeshLambertMaterial({ map: dirtTex });
+
+    const grassBlockMaterials = [
+      grassSideMat, grassSideMat, grassTopMat, dirtMat, grassSideMat, grassSideMat
+    ];
+
+    // 3. UI & WORLD SELECTION LOGIC
     let currentWorldId = "main_lobby";
     let playerName = "Player123";
     let activeHotbarSlot = 0;
@@ -211,13 +254,9 @@
       else selectSlot(activeHotbarSlot - 1);
     });
 
-    // 3. THREE.JS ENGINE SETUP
+    // 4. THREE.JS ENGINE & GENERATION
     let scene, camera, renderer, controls;
     const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-    
-    // ENHANCED LIGHTING & STYLIZED COLORS (NO EXTRA LAG)
-    const grassMat = new THREE.MeshLambertMaterial({ color: 0x6bbd45 }); 
-    const dirtMat  = new THREE.MeshLambertMaterial({ color: 0x8a5a36 }); 
 
     let SEED = 12345;
     function stringToSeed(str) {
@@ -248,8 +287,8 @@
       const startZ = chunkZ * CHUNK_SIZE;
       const totalBlocksPerChunk = CHUNK_SIZE * CHUNK_SIZE;
 
-      const grassMesh = new THREE.InstancedMesh(boxGeo, grassMat, totalBlocksPerChunk);
-      const dirtMesh = new THREE.InstancedMesh(boxGeo, dirtMat, totalBlocksPerChunk * 2);
+      const grassMesh = new THREE.InstancedMesh(boxGeo, grassBlockMaterials, totalBlocksPerChunk);
+      const dirtMesh  = new THREE.InstancedMesh(boxGeo, dirtMat, totalBlocksPerChunk * 2);
 
       let grassIndex = 0;
       let dirtIndex = 0;
@@ -293,19 +332,19 @@
       }
     }
 
-    // 4. PHYSICS & CONTROLS
+    // 5. PHYSICS & RIGID CONTROLS
     let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
     let spaceHeld = false;
     let velocityY = 0, canJump = false;
     const GRAVITY = -0.009;
-    const JUMP_FORCE = 0.16; // Eeny-beeny tiny higher jump!
+    const JUMP_FORCE = 0.16;
     const PLAYER_HEIGHT = 1.8;
 
     function initGame() {
       SEED = stringToSeed(currentWorldId);
 
       scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x78a7ff); // Rich blue sky
+      scene.background = new THREE.Color(0x78a7ff);
       scene.fog = new THREE.FogExp2(0x78a7ff, 0.03);
 
       camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
@@ -314,15 +353,13 @@
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
       document.body.appendChild(renderer.domElement);
 
-      // SUNLIGHT & SHADOW HIGHLIGHTS
       const sun = new THREE.DirectionalLight(0xffffff, 0.95);
       sun.position.set(30, 50, 20);
       scene.add(sun);
-      scene.add(new THREE.AmbientLight(0x8899aa, 0.5));
+      scene.add(new THREE.AmbientLight(0x8899aa, 0.65));
 
       controls = new THREE.PointerLockControls(camera, document.body);
-      
-      // ESC KEY / UNLOCK RETURN TO MENU
+
       controls.addEventListener('unlock', () => {
         document.getElementById('menu-overlay').style.display = 'flex';
         document.getElementById('crosshair').style.display = 'none';
@@ -358,7 +395,7 @@
       animate();
     }
 
-    // 5. MULTIPLAYER SYNC
+    // 6. MULTIPLAYER SYNC
     let playerId = 'player_' + Math.floor(Math.random() * 10000);
     const otherPlayers = {};
     let lastNetworkUpdate = 0;
@@ -400,36 +437,39 @@
       window.updateMultiplayerFunc = updateMultiplayer;
     }
 
-    // 6. GAME LOOP (NO AUTO STEP-UP & HOLD SPACE JUMP)
+    // 7. GAME LOOP (CORRECTED GROUND MOVEMENT & COLLISION)
     function animate() {
       requestAnimationFrame(animate);
 
       if (controls && controls.isLocked) {
-        // Horizontal Movement
         const prevX = camera.position.x;
         const prevZ = camera.position.z;
+        const startStandingHeight = worldBlocks[`${Math.round(prevX)},${Math.round(prevZ)}`] ?? 0;
 
-        if (moveForward) controls.moveForward(0.1);
-        if (moveBackward) controls.moveForward(-0.1);
-        if (moveLeft) controls.moveRight(-0.1);
-        if (moveRight) controls.moveRight(0.1);
+        // Apply Horizontal Movement
+        if (moveForward) controls.moveForward(0.12);
+        if (moveBackward) controls.moveForward(-0.12);
+        if (moveLeft) controls.moveRight(-0.12);
+        if (moveRight) controls.moveRight(0.12);
 
-        // STRICT BLOCK SIDE-COLLISION (PREVENTS AUTO STEPPING UP)
-        const checkX = Math.round(camera.position.x);
-        const checkZ = Math.round(camera.position.z);
-        const currentBlockHeight = worldBlocks[`${checkX},${checkZ}`] ?? 0;
-        
-        // If target block top is higher than player feet, block horizontal movement (bump into wall)
-        if (currentBlockHeight + 0.5 > (camera.position.y - PLAYER_HEIGHT)) {
+        // PROPER WALL COLLISION CHECK:
+        // Only block if trying to move into a block HIGHER than current standing height without jumping
+        const targetX = Math.round(camera.position.x);
+        const targetZ = Math.round(camera.position.z);
+        const targetHeight = worldBlocks[`${targetX},${targetZ}`] ?? 0;
+
+        const playerFeetY = camera.position.y - PLAYER_HEIGHT;
+
+        if (targetHeight > startStandingHeight && playerFeetY < targetHeight - 0.1) {
           camera.position.x = prevX;
           camera.position.z = prevZ;
         }
 
-        // Apply Gravity
+        // Gravity & Jump Physics
         velocityY += GRAVITY;
         camera.position.y += velocityY;
 
-        // Ground Check
+        // Ground Collision
         const playerX = Math.round(camera.position.x);
         const playerZ = Math.round(camera.position.z);
         const groundHeight = worldBlocks[`${playerX},${playerZ}`] ?? 0;
@@ -440,7 +480,6 @@
           velocityY = 0;
           canJump = true;
 
-          // HOLD SPACEBAR TO CONTINUOUSLY JUMP
           if (spaceHeld && canJump) {
             velocityY = JUMP_FORCE;
             canJump = false;
