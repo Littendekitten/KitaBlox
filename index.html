@@ -482,10 +482,6 @@
         velocity.x = approach(velocity.x, targetX, hasInput ? accelRate : stopRate, delta);
         velocity.z = approach(velocity.z, targetZ, hasInput ? accelRate : stopRate, delta);
 
-        if (hasInput && isGrounded) {
-          walkTimer += delta * 9;
-        }
-
         // Apply X Move & Collide
         camera.position.x += velocity.x * delta;
         if (checkCollision(camera.position)) { camera.position.x -= velocity.x * delta; velocity.x = 0; }
@@ -509,11 +505,6 @@
         if (jumpHeld && isGrounded) {
           yVel = JUMP_SPEED;
           isGrounded = false;
-        }
-
-        // Camera Walk Bobbing
-        if (isGrounded && hasInput) {
-          camera.position.y += Math.sin(walkTimer) * 0.02;
         }
 
         // Raycast Outline Target
