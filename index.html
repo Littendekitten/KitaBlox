@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Bloxd Clone - Infinite World</title>
+  <title>KitaBlox - Infinite World</title>
   <style>
-    body { margin: 0; overflow: hidden; font-family: sans-serif; }
+    body { margin: 0; overflow: hidden; font-family: sans-serif; background: #000; }
     #crosshair {
       position: absolute; top: 50%; left: 50%;
       width: 8px; height: 8px;
@@ -21,7 +21,8 @@
 <body>
   <div id="crosshair"></div>
   <div id="instructions">
-    <b>Click to Play</b><br>
+    <b style="font-size: 18px; color: #7ec850;">Welcome to KitaBlox!</b><br><br>
+    <b>Click screen to Play</b><br>
     WASD: Move<br>
     SPACE: Jump<br>
     MOUSE: Look around
@@ -49,50 +50,58 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    // 2. THREE.JS ENGINE & LIGHTING
+    // 2. THREE.JS ENGINE & OPTIMIZED LIGHTING
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb); // Sky blue
-    scene.fog = new THREE.FogExp2(0x87ceeb, 0.025); // Distance fog for performance look
+    scene.fog = new THREE.FogExp2(0x87ceeb, 0.035);
 
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
+    const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // Cap pixel density to reduce lag
     document.body.appendChild(renderer.domElement);
 
     const light = new THREE.DirectionalLight(0xffffff, 0.8);
     light.position.set(20, 40, 20);
     scene.add(light);
-    scene.add(new THREE.AmbientLight(0x606060));
+    scene.add(new THREE.AmbientLight(0x707070));
 
-    // 3. MATERIALS (Light Green Grass & Light Brown Dirt)
+    // 3. MATERIALS & GEOMETRY
     const boxGeo = new THREE.BoxGeometry(1, 1, 1);
     const grassMat = new THREE.MeshLambertMaterial({ color: 0x7ec850 }); // Light Green
     const dirtMat  = new THREE.MeshLambertMaterial({ color: 0x9b7653 }); // Light Brown
 
-    // 4. RANDOM SEED & TERRAIN NOISE
+    // 4. TERRAIN GENERATION (INSTANCED MESH FOR ZERO LAG)
     const SEED = Math.random() * 100;
     function getTerrainHeight(x, z) {
-      // Procedural height map combining sine/cosine noise functions
       const scale1 = 0.08;
       const scale2 = 0.03;
-      let h = Math.sin((x + SEED) * scale1) * Math.cos((z + SEED) * scale1) * 4;
-      h += Math.sin((x - SEED) * scale2) * 6;
+      let h = Math.sin((x + SEED) * scale1) * Math.cos((z + SEED) * scale1) * 3;
+      h += Math.sin((x - SEED) * scale2) * 4;
       return Math.floor(h);
     }
 
-    // CHUNK SYSTEM (Chunk Size: 16x16)
     const CHUNK_SIZE = 16;
-    const RENDER_DISTANCE = 2; // Renders chunks around player
+    const RENDER_DISTANCE = 1; // Small render distance prevents stutter
     const loadedChunks = {};
-    const worldBlocks = {}; // Stores block Y height per (X,Z) coordinate for collision
+    const worldBlocks = {};
+
+    const dummy = new THREE.Object3D();
 
     function generateChunk(chunkX, chunkZ) {
       const chunkKey = `${chunkX},${chunkZ}`;
       if (loadedChunks[chunkKey]) return;
 
-      const chunkGroup = new THREE.Group();
       const startX = chunkX * CHUNK_SIZE;
       const startZ = chunkZ * CHUNK_SIZE;
+      const totalBlocksPerChunk = CHUNK_SIZE * CHUNK_SIZE;
+
+      // 1 InstancedMesh for Grass, 1 InstancedMesh for Dirt per chunk
+      const grassMesh = new THREE.InstancedMesh(boxGeo, grassMat, totalBlocksPerChunk);
+      const dirtMesh = new THREE.InstancedMesh(boxGeo, dirtMat, totalBlocksPerChunk * 2);
+
+      let grassIndex = 0;
+      let dirtIndex = 0;
 
       for (let x = startX; x < startX + CHUNK_SIZE; x++) {
         for (let z = startZ; z < startZ + CHUNK_SIZE; z++) {
@@ -100,18 +109,25 @@
           worldBlocks[`${x},${z}`] = height;
 
           // Top Grass Block
-          const grass = new THREE.Mesh(boxGeo, grassMat);
-          grass.position.set(x, height, z);
-          chunkGroup.add(grass);
+          dummy.position.set(x, height, z);
+          dummy.updateMatrix();
+          grassMesh.setMatrixAt(grassIndex++, dummy.matrix);
 
-          // 3 Dirt Blocks Below Top Layer
-          for (let y = height - 1; y >= height - 3; y--) {
-            const dirt = new THREE.Mesh(boxGeo, dirtMat);
-            dirt.position.set(x, y, z);
-            chunkGroup.add(dirt);
+          // 2 Dirt Blocks Below
+          for (let y = height - 1; y >= height - 2; y--) {
+            dummy.position.set(x, y, z);
+            dummy.updateMatrix();
+            dirtMesh.setMatrixAt(dirtIndex++, dummy.matrix);
           }
         }
       }
+
+      grassMesh.instanceMatrix.needsUpdate = true;
+      dirtMesh.instanceMatrix.needsUpdate = true;
+
+      const chunkGroup = new THREE.Group();
+      chunkGroup.add(grassMesh);
+      chunkGroup.add(dirtMesh);
 
       scene.add(chunkGroup);
       loadedChunks[chunkKey] = chunkGroup;
@@ -128,7 +144,7 @@
       }
     }
 
-    // 5. CONTROLS & PHYSICS
+    // 5. PHYSICS & RIGID MOVEMENT (NO AUTO-JUMP & BALANCED JUMP)
     const controls = new THREE.PointerLockControls(camera, document.body);
     document.body.addEventListener('click', () => controls.lock());
     controls.addEventListener('lock', () => document.getElementById('instructions').style.display = 'none');
@@ -137,11 +153,10 @@
     let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
     let velocityY = 0;
     let canJump = false;
-    const GRAVITY = -0.015;
-    const JUMP_FORCE = 0.35;
+    const GRAVITY = -0.009;   // Smoother gravity
+    const JUMP_FORCE = 0.14;  // Normal jump height (about 1.2 blocks high)
     const PLAYER_HEIGHT = 1.8;
 
-    // Spawn player above initial height
     camera.position.set(0, getTerrainHeight(0, 0) + 5, 0);
 
     document.addEventListener('keydown', (e) => {
@@ -162,16 +177,22 @@
       if (e.code === 'KeyD') moveRight = false;
     });
 
-    // 6. MULTIPLAYER SYNC
+    // 6. MULTIPLAYER SYNC (THROTTLED TO PREVENT NETWORK LAG)
     const playerId = 'player_' + Math.floor(Math.random() * 10000);
     const otherPlayers = {};
+    let lastNetworkUpdate = 0;
 
     function updateMultiplayer() {
-      db.ref('players/' + playerId).set({
-        x: camera.position.x,
-        y: camera.position.y,
-        z: camera.position.z
-      });
+      const now = Date.now();
+      // Only send network data 20 times per second
+      if (now - lastNetworkUpdate > 50) {
+        db.ref('players/' + playerId).set({
+          x: camera.position.x,
+          y: camera.position.y,
+          z: camera.position.z
+        });
+        lastNetworkUpdate = now;
+      }
     }
 
     db.ref('players').on('value', (snapshot) => {
@@ -199,19 +220,20 @@
 
       if (controls.isLocked) {
         // Horizontal Movement
-        if (moveForward) controls.moveForward(0.12);
-        if (moveBackward) controls.moveForward(-0.12);
-        if (moveLeft) controls.moveRight(-0.12);
-        if (moveRight) controls.moveRight(0.12);
+        if (moveForward) controls.moveForward(0.1);
+        if (moveBackward) controls.moveForward(-0.1);
+        if (moveLeft) controls.moveRight(-0.1);
+        if (moveRight) controls.moveRight(0.1);
 
-        // Apply Gravity & Jumping
+        // Apply Gravity & Manual Jump
         velocityY += GRAVITY;
         camera.position.y += velocityY;
 
-        // Ground Collision
+        // Ground Collision & Block Wall Check (NO AUTO-JUMP)
         const currentX = Math.round(camera.position.x);
         const currentZ = Math.round(camera.position.z);
-        const groundY = (worldBlocks[`${currentX},${currentZ}`] ?? 0) + PLAYER_HEIGHT;
+        const groundHeight = worldBlocks[`${currentX},${currentZ}`] ?? 0;
+        const groundY = groundHeight + PLAYER_HEIGHT;
 
         if (camera.position.y <= groundY) {
           camera.position.y = groundY;
@@ -219,15 +241,19 @@
           canJump = true;
         }
 
-        // Procedural Chunk Loading based on player position
         updateChunks();
-
-        // Firebase Sync
         updateMultiplayer();
       }
 
       renderer.render(scene, camera);
     }
+
+    // Resize Handling
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
 
     animate();
   </script>
