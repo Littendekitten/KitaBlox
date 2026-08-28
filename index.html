@@ -1,1 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Bloxd Clone</title>
+  <style>
+    body { margin: 0; overflow: hidden; font-family: sans-serif; }
+    #crosshair {
+      position: absolute; top: 50%; left: 50%;
+      width: 10px; height: 10px;
+      background: white; border-radius: 50%;
+      transform: translate(-50%, -50%); pointer-events: none;
+    }
+    #instructions {
+      position: absolute; top: 20px; left: 20px;
+      color: white; background: rgba(0,0,0,0.5); padding: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="crosshair"></div>
+  <div id="instructions">Click screen to play! Use WASD to move, Mouse to look.</div>
 
+  <!-- Load Three.js & Controls via CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+
+  <!-- Load Firebase via CDN -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+
+  <script>
+    // 1. FIREBASE SETUP (Replace with your Firebase Console Config)
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT.firebaseapp.com",
+      databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
+      projectId: "YOUR_PROJECT",
+      storageBucket: "YOUR_PROJECT.appspot.com",
+      messagingSenderId: "SENDER_ID",
+      appId: "APP_ID"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // 2. THREE.JS SCENE SETUP
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87ceeb); // Sky blue
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Lighting
+    const light = new THREE.DirectionalLight(0xffffff, 1);
+    light.position.set(5, 10, 7.5).normalize();
+    scene.add(light);
+    scene.add(new THREE.AmbientLight(0x404040));
+
+    // Simple Grass Block World (10x10 floor)
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const material = new THREE.MeshLambertMaterial({ color: 0x557a2b });
+    for (let x = -5; x < 5; x++) {
+      for (let z = -5; z < 5; z++) {
+        const cube = new THREE.Mesh(geometry, material);
+        cube.position.set(x, 0, z);
+        scene.add(cube);
+      }
+    }
+
+    // Controls
+    const controls = new THREE.PointerLockControls(camera, document.body);
+    document.body.addEventListener('click', () => controls.lock());
+    controls.addEventListener('lock', () => document.getElementById('instructions').style.display = 'none');
+    controls.addEventListener('unlock', () => document.getElementById('instructions').style.display = 'block');
+
+    camera.position.y = 2;
+
+    // Basic Movement logic
+    let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+    document.addEventListener('keydown', (e) => {
+      if(e.code === 'KeyW') moveForward = true;
+      if(e.code === 'KeyS') moveBackward = true;
+      if(e.code === 'KeyA') moveLeft = true;
+      if(e.code === 'KeyD') moveRight = true;
+    });
+    document.addEventListener('keyup', (e) => {
+      if(e.code === 'KeyW') moveForward = false;
+      if(e.code === 'KeyS') moveBackward = false;
+      if(e.code === 'KeyA') moveLeft = false;
+      if(e.code === 'KeyD') moveRight = false;
+    });
+
+    // 3. MULTIPLAYER SYNC
+    const playerId = 'player_' + Math.floor(Math.random() * 10000);
+    const otherPlayers = {};
+
+    function updatePosition() {
+      db.ref('players/' + playerId).set({
+        x: camera.position.x,
+        y: camera.position.y,
+        z: camera.position.z
+      });
+    }
+
+    // Render other players
+    db.ref('players').on('value', (snapshot) => {
+      const data = snapshot.val();
+      for (let id in data) {
+        if (id !== playerId) {
+          if (!otherPlayers[id]) {
+            const avatar = new THREE.Mesh(
+              new THREE.BoxGeometry(0.8, 1.8, 0.8),
+              new THREE.MeshLambertMaterial({ color: 0xff0000 })
+            );
+            scene.add(avatar);
+            otherPlayers[id] = avatar;
+          }
+          otherPlayers[id].position.set(data[id].x, data[id].y, data[id].z);
+        }
+      }
+    });
+
+    // Remove player when disconnected
+    db.ref('players/' + playerId).onDisconnect().remove();
+
+    // Loop
+    function animate() {
+      requestAnimationFrame(animate);
+      if (controls.isLocked) {
+        if (moveForward) controls.moveForward(0.1);
+        if (moveBackward) controls.moveForward(-0.1);
+        if (moveLeft) controls.moveRight(-0.1);
+        if (moveRight) controls.moveRight(0.1);
+        updatePosition();
+      }
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>
