@@ -314,6 +314,22 @@
     let velocity = new THREE.Vector3();
     let yVel = 0, isGrounded = false;
     let walkTimer = 0;
+    const clock = new THREE.Clock();
+
+    // Movement tuning (all in units/second, framerate-independent)
+    const MOVE_SPEED = 4.3;      // top ground speed
+    const ACCEL_GROUND = 45;     // how fast you reach top speed on ground
+    const ACCEL_AIR = 10;        // limited air control, like Minecraft
+    const FRICTION_GROUND = 38;  // how fast you stop when you let go, on ground
+    const GRAVITY = 28;
+    const JUMP_SPEED = 8.6;
+
+    function approach(current, target, rate, delta) {
+      const diff = target - current;
+      const step = rate * delta;
+      if (Math.abs(diff) <= step) return target;
+      return current + Math.sign(diff) * step;
+    }
 
     function setupEvents() {
       document.getElementById('start-game-btn').addEventListener('click', () => {
@@ -436,42 +452,54 @@
         fpsAccum = 0; fpsFrames = 0;
       }
 
-      if (controls.isLocked) {
-        // Smooth Friction & Momentum
-        velocity.x *= 0.8;
-        velocity.z *= 0.8;
+      // Clamp delta so tab-switches / hitches don't cause a huge teleport-y step
+      const delta = Math.min(clock.getDelta(), 0.1);
 
+      if (controls.isLocked) {
+        const hasInput = moveF || moveB || moveL || moveR;
+
+        // Build wish direction in world space from camera facing
         const dir = new THREE.Vector3();
         if (moveF) dir.z -= 1;
         if (moveB) dir.z += 1;
         if (moveL) dir.x -= 1;
         if (moveR) dir.x += 1;
-        dir.normalize();
+        if (hasInput) dir.normalize();
 
-        if (moveF || moveB || moveL || moveR) {
+        let targetX = 0, targetZ = 0;
+        if (hasInput) {
           const moveDir = dir.applyQuaternion(camera.quaternion);
           moveDir.y = 0;
           moveDir.normalize();
-          velocity.x += moveDir.x * 0.04;
-          velocity.z += moveDir.z * 0.04;
+          targetX = moveDir.x * MOVE_SPEED;
+          targetZ = moveDir.z * MOVE_SPEED;
+        }
 
-          walkTimer += 0.15;
+        // Accelerate toward target speed on input, decelerate to a hard stop
+        // when there's none (ground), or keep momentum with limited control (air)
+        const accelRate = isGrounded ? ACCEL_GROUND : ACCEL_AIR;
+        const stopRate = isGrounded ? FRICTION_GROUND : 0;
+        velocity.x = approach(velocity.x, targetX, hasInput ? accelRate : stopRate, delta);
+        velocity.z = approach(velocity.z, targetZ, hasInput ? accelRate : stopRate, delta);
+
+        if (hasInput && isGrounded) {
+          walkTimer += delta * 9;
         }
 
         // Apply X Move & Collide
-        camera.position.x += velocity.x;
-        if (checkCollision(camera.position)) camera.position.x -= velocity.x;
+        camera.position.x += velocity.x * delta;
+        if (checkCollision(camera.position)) { camera.position.x -= velocity.x * delta; velocity.x = 0; }
 
         // Apply Z Move & Collide
-        camera.position.z += velocity.z;
-        if (checkCollision(camera.position)) camera.position.z -= velocity.z;
+        camera.position.z += velocity.z * delta;
+        if (checkCollision(camera.position)) { camera.position.z -= velocity.z * delta; velocity.z = 0; }
 
         // Gravity & Y Physics
-        yVel -= 0.012;
-        camera.position.y += yVel;
+        yVel -= GRAVITY * delta;
+        camera.position.y += yVel * delta;
 
         if (checkCollision(camera.position)) {
-          camera.position.y -= yVel;
+          camera.position.y -= yVel * delta;
           if (yVel < 0) { isGrounded = true; }
           yVel = 0;
         } else {
@@ -479,12 +507,12 @@
         }
 
         if (jumpHeld && isGrounded) {
-          yVel = 0.22;
+          yVel = JUMP_SPEED;
           isGrounded = false;
         }
 
         // Camera Walk Bobbing
-        if (isGrounded && (moveF || moveB || moveL || moveR)) {
+        if (isGrounded && hasInput) {
           camera.position.y += Math.sin(walkTimer) * 0.02;
         }
 
