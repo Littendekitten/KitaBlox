@@ -2,35 +2,41 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Bloxd Clone</title>
+  <title>Bloxd Clone - Infinite World</title>
   <style>
     body { margin: 0; overflow: hidden; font-family: sans-serif; }
     #crosshair {
       position: absolute; top: 50%; left: 50%;
-      width: 10px; height: 10px;
+      width: 8px; height: 8px;
       background: white; border-radius: 50%;
       transform: translate(-50%, -50%); pointer-events: none;
+      border: 1px solid black;
     }
     #instructions {
       position: absolute; top: 20px; left: 20px;
-      color: white; background: rgba(0,0,0,0.5); padding: 10px;
+      color: white; background: rgba(0,0,0,0.6); padding: 12px; border-radius: 6px;
     }
   </style>
 </head>
 <body>
   <div id="crosshair"></div>
-  <div id="instructions">Click screen to play! Use WASD to move, Mouse to look.</div>
+  <div id="instructions">
+    <b>Click to Play</b><br>
+    WASD: Move<br>
+    SPACE: Jump<br>
+    MOUSE: Look around
+  </div>
 
-  <!-- Load Three.js & Controls via CDN -->
+  <!-- Load Three.js & Controls -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
 
-  <!-- Load Firebase via CDN -->
+  <!-- Load Firebase CDN -->
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
   <script>
-    // 1. FIREBASE SETUP (Replace with your Firebase Console Config)
+    // 1. FIREBASE SETUP
     const firebaseConfig = {
       apiKey: "YOUR_API_KEY",
       authDomain: "YOUR_PROJECT.firebaseapp.com",
@@ -43,59 +49,124 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    // 2. THREE.JS SCENE SETUP
+    // 2. THREE.JS ENGINE & LIGHTING
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb); // Sky blue
+    scene.fog = new THREE.FogExp2(0x87ceeb, 0.025); // Distance fog for performance look
+
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer();
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
-    // Lighting
-    const light = new THREE.DirectionalLight(0xffffff, 1);
-    light.position.set(5, 10, 7.5).normalize();
+    const light = new THREE.DirectionalLight(0xffffff, 0.8);
+    light.position.set(20, 40, 20);
     scene.add(light);
-    scene.add(new THREE.AmbientLight(0x404040));
+    scene.add(new THREE.AmbientLight(0x606060));
 
-    // Simple Grass Block World (10x10 floor)
-    const geometry = new THREE.BoxGeometry(1, 1, 1);
-    const material = new THREE.MeshLambertMaterial({ color: 0x557a2b });
-    for (let x = -5; x < 5; x++) {
-      for (let z = -5; z < 5; z++) {
-        const cube = new THREE.Mesh(geometry, material);
-        cube.position.set(x, 0, z);
-        scene.add(cube);
+    // 3. MATERIALS (Light Green Grass & Light Brown Dirt)
+    const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+    const grassMat = new THREE.MeshLambertMaterial({ color: 0x7ec850 }); // Light Green
+    const dirtMat  = new THREE.MeshLambertMaterial({ color: 0x9b7653 }); // Light Brown
+
+    // 4. RANDOM SEED & TERRAIN NOISE
+    const SEED = Math.random() * 100;
+    function getTerrainHeight(x, z) {
+      // Procedural height map combining sine/cosine noise functions
+      const scale1 = 0.08;
+      const scale2 = 0.03;
+      let h = Math.sin((x + SEED) * scale1) * Math.cos((z + SEED) * scale1) * 4;
+      h += Math.sin((x - SEED) * scale2) * 6;
+      return Math.floor(h);
+    }
+
+    // CHUNK SYSTEM (Chunk Size: 16x16)
+    const CHUNK_SIZE = 16;
+    const RENDER_DISTANCE = 2; // Renders chunks around player
+    const loadedChunks = {};
+    const worldBlocks = {}; // Stores block Y height per (X,Z) coordinate for collision
+
+    function generateChunk(chunkX, chunkZ) {
+      const chunkKey = `${chunkX},${chunkZ}`;
+      if (loadedChunks[chunkKey]) return;
+
+      const chunkGroup = new THREE.Group();
+      const startX = chunkX * CHUNK_SIZE;
+      const startZ = chunkZ * CHUNK_SIZE;
+
+      for (let x = startX; x < startX + CHUNK_SIZE; x++) {
+        for (let z = startZ; z < startZ + CHUNK_SIZE; z++) {
+          const height = getTerrainHeight(x, z);
+          worldBlocks[`${x},${z}`] = height;
+
+          // Top Grass Block
+          const grass = new THREE.Mesh(boxGeo, grassMat);
+          grass.position.set(x, height, z);
+          chunkGroup.add(grass);
+
+          // 3 Dirt Blocks Below Top Layer
+          for (let y = height - 1; y >= height - 3; y--) {
+            const dirt = new THREE.Mesh(boxGeo, dirtMat);
+            dirt.position.set(x, y, z);
+            chunkGroup.add(dirt);
+          }
+        }
+      }
+
+      scene.add(chunkGroup);
+      loadedChunks[chunkKey] = chunkGroup;
+    }
+
+    function updateChunks() {
+      const playerChunkX = Math.floor(camera.position.x / CHUNK_SIZE);
+      const playerChunkZ = Math.floor(camera.position.z / CHUNK_SIZE);
+
+      for (let x = playerChunkX - RENDER_DISTANCE; x <= playerChunkX + RENDER_DISTANCE; x++) {
+        for (let z = playerChunkZ - RENDER_DISTANCE; z <= playerChunkZ + RENDER_DISTANCE; z++) {
+          generateChunk(x, z);
+        }
       }
     }
 
-    // Controls
+    // 5. CONTROLS & PHYSICS
     const controls = new THREE.PointerLockControls(camera, document.body);
     document.body.addEventListener('click', () => controls.lock());
     controls.addEventListener('lock', () => document.getElementById('instructions').style.display = 'none');
     controls.addEventListener('unlock', () => document.getElementById('instructions').style.display = 'block');
 
-    camera.position.y = 2;
-
-    // Basic Movement logic
     let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+    let velocityY = 0;
+    let canJump = false;
+    const GRAVITY = -0.015;
+    const JUMP_FORCE = 0.35;
+    const PLAYER_HEIGHT = 1.8;
+
+    // Spawn player above initial height
+    camera.position.set(0, getTerrainHeight(0, 0) + 5, 0);
+
     document.addEventListener('keydown', (e) => {
-      if(e.code === 'KeyW') moveForward = true;
-      if(e.code === 'KeyS') moveBackward = true;
-      if(e.code === 'KeyA') moveLeft = true;
-      if(e.code === 'KeyD') moveRight = true;
-    });
-    document.addEventListener('keyup', (e) => {
-      if(e.code === 'KeyW') moveForward = false;
-      if(e.code === 'KeyS') moveBackward = false;
-      if(e.code === 'KeyA') moveLeft = false;
-      if(e.code === 'KeyD') moveRight = false;
+      if (e.code === 'KeyW') moveForward = true;
+      if (e.code === 'KeyS') moveBackward = true;
+      if (e.code === 'KeyA') moveLeft = true;
+      if (e.code === 'KeyD') moveRight = true;
+      if (e.code === 'Space' && canJump) {
+        velocityY = JUMP_FORCE;
+        canJump = false;
+      }
     });
 
-    // 3. MULTIPLAYER SYNC
+    document.addEventListener('keyup', (e) => {
+      if (e.code === 'KeyW') moveForward = false;
+      if (e.code === 'KeyS') moveBackward = false;
+      if (e.code === 'KeyA') moveLeft = false;
+      if (e.code === 'KeyD') moveRight = false;
+    });
+
+    // 6. MULTIPLAYER SYNC
     const playerId = 'player_' + Math.floor(Math.random() * 10000);
     const otherPlayers = {};
 
-    function updatePosition() {
+    function updateMultiplayer() {
       db.ref('players/' + playerId).set({
         x: camera.position.x,
         y: camera.position.y,
@@ -103,7 +174,6 @@
       });
     }
 
-    // Render other players
     db.ref('players').on('value', (snapshot) => {
       const data = snapshot.val();
       for (let id in data) {
@@ -111,7 +181,7 @@
           if (!otherPlayers[id]) {
             const avatar = new THREE.Mesh(
               new THREE.BoxGeometry(0.8, 1.8, 0.8),
-              new THREE.MeshLambertMaterial({ color: 0xff0000 })
+              new THREE.MeshLambertMaterial({ color: 0xe74c3c })
             );
             scene.add(avatar);
             otherPlayers[id] = avatar;
@@ -121,21 +191,44 @@
       }
     });
 
-    // Remove player when disconnected
     db.ref('players/' + playerId).onDisconnect().remove();
 
-    // Loop
+    // 7. GAME LOOP
     function animate() {
       requestAnimationFrame(animate);
+
       if (controls.isLocked) {
-        if (moveForward) controls.moveForward(0.1);
-        if (moveBackward) controls.moveForward(-0.1);
-        if (moveLeft) controls.moveRight(-0.1);
-        if (moveRight) controls.moveRight(0.1);
-        updatePosition();
+        // Horizontal Movement
+        if (moveForward) controls.moveForward(0.12);
+        if (moveBackward) controls.moveForward(-0.12);
+        if (moveLeft) controls.moveRight(-0.12);
+        if (moveRight) controls.moveRight(0.12);
+
+        // Apply Gravity & Jumping
+        velocityY += GRAVITY;
+        camera.position.y += velocityY;
+
+        // Ground Collision
+        const currentX = Math.round(camera.position.x);
+        const currentZ = Math.round(camera.position.z);
+        const groundY = (worldBlocks[`${currentX},${currentZ}`] ?? 0) + PLAYER_HEIGHT;
+
+        if (camera.position.y <= groundY) {
+          camera.position.y = groundY;
+          velocityY = 0;
+          canJump = true;
+        }
+
+        // Procedural Chunk Loading based on player position
+        updateChunks();
+
+        // Firebase Sync
+        updateMultiplayer();
       }
+
       renderer.render(scene, camera);
     }
+
     animate();
   </script>
 </body>
