@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>KitaBlox - Advanced Voxel Sandbox</title>
   <style>
     * { box-sizing: border-box; user-select: none; }
@@ -81,6 +81,74 @@
       position: absolute; top: 58px; right: 20px; color: #94a3b8;
       font-family: monospace; font-size: 11px; z-index: 5; display: none;
       background: rgba(15,23,42,0.65); padding: 6px 10px; border-radius: 8px;
+    }
+
+    /* ===================== MOBILE CONTROLS (Bloxd-style) ===================== */
+    /* Hidden by default; body gets .is-mobile added by engine.js when a coarse-pointer
+       (touch) device is detected, which is the only thing that reveals these. */
+    .is-mobile-only, #mobile-controls { display: none; }
+
+    body.is-mobile #hud-instructions { display: none !important; } /* keyboard hints don't apply */
+
+    body.is-mobile #hotbar-container {
+      bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+      transform: translateX(-50%) scale(0.92);
+    }
+
+    /* #mobile-controls and #mobile-top-buttons start hidden (display:none, set above);
+       engine.js flips their inline display style on/off directly as the game is
+       entered/paused, only ever inside isMobileDevice branches -- so desktop never
+       touches them and they stay hidden there regardless. */
+    #mobile-top-buttons {
+      position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: 16px;
+      z-index: 15; gap: 10px;
+    }
+
+    .mobile-icon-btn {
+      width: 46px; height: 46px; border-radius: 50%;
+      background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255,255,255,0.2);
+      color: #f8fafc; font-size: 20px; display: flex; align-items: center; justify-content: center;
+      backdrop-filter: blur(8px); touch-action: none; -webkit-tap-highlight-color: transparent;
+    }
+    .mobile-icon-btn:active { background: rgba(74, 222, 128, 0.35); }
+
+    #mobile-controls {
+      position: absolute; inset: 0; z-index: 12; pointer-events: none;
+    }
+    #mobile-controls * { pointer-events: auto; }
+
+    #joystick-zone {
+      position: absolute; left: calc(20px + env(safe-area-inset-left, 0px));
+      bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+      width: 130px; height: 130px; touch-action: none;
+    }
+    #joystick-base {
+      position: absolute; inset: 0; border-radius: 50%;
+      background: rgba(15, 23, 42, 0.4); border: 2px solid rgba(255,255,255,0.25);
+      display: flex; align-items: center; justify-content: center;
+    }
+    #joystick-knob {
+      width: 56px; height: 56px; border-radius: 50%;
+      background: rgba(74, 222, 128, 0.55); border: 2px solid rgba(255,255,255,0.5);
+      transition: transform 0.02s linear;
+    }
+
+    #mobile-action-buttons {
+      position: absolute; right: calc(16px + env(safe-area-inset-right, 0px));
+      bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+      display: flex; align-items: flex-end; gap: 12px;
+    }
+    .mobile-btn {
+      border-radius: 50%; background: rgba(15, 23, 42, 0.55);
+      border: 2px solid rgba(255,255,255,0.25); color: #f8fafc;
+      display: flex; align-items: center; justify-content: center;
+      touch-action: none; -webkit-tap-highlight-color: transparent;
+    }
+    .mobile-btn:active { background: rgba(74, 222, 128, 0.4); border-color: #4ade80; }
+    #break-btn, #place-btn { width: 58px; height: 58px; font-size: 24px; }
+    #jump-btn {
+      width: 74px; height: 74px; font-size: 15px; font-weight: 800;
+      background: rgba(74, 222, 128, 0.25);
     }
 
     /* ===================== AUTH UI ===================== */
@@ -315,6 +383,7 @@
     Left Click : Break Block<br>
     Right Click : Place Block<br>
     1-7 / Scroll : Hotbar<br>
+    ALT / F5 : Change view<br>
     ESC : Release mouse (change seed here too)
   </div>
 
@@ -326,6 +395,25 @@
     <div class="hotbar-slot" data-slot="4"><span class="slot-num">5</span><span>Leaves</span></div>
     <div class="hotbar-slot" data-slot="5"><span class="slot-num">6</span><span>Sand</span></div>
     <div class="hotbar-slot" data-slot="6"><span class="slot-num">7</span><span>Glass</span></div>
+  </div>
+
+  <!-- ===== Mobile-only UI: automatically shown by engine.js (body.is-mobile) on
+       touch/coarse-pointer devices. Perspective button replaces Alt/F5, settings
+       button replaces ESC, joystick + look-drag + action buttons replace WASD/mouse. ===== -->
+  <div id="mobile-top-buttons" class="is-mobile-only">
+    <button type="button" id="perspective-btn" class="mobile-icon-btn" title="Change perspective">🎥</button>
+    <button type="button" id="settings-btn" class="mobile-icon-btn" title="Settings / pause">⚙️</button>
+  </div>
+
+  <div id="mobile-controls" class="is-mobile-only">
+    <div id="joystick-zone">
+      <div id="joystick-base"><div id="joystick-knob"></div></div>
+    </div>
+    <div id="mobile-action-buttons">
+      <button type="button" id="break-btn" class="mobile-btn" title="Break block">⛏️</button>
+      <button type="button" id="place-btn" class="mobile-btn" title="Place block">🧱</button>
+      <button type="button" id="jump-btn" class="mobile-btn" title="Jump">JUMP</button>
+    </div>
   </div>
 
   <!-- ================= FIREBASE (compat SDK, works with plain <script> tags, no bundler needed) ================= -->
