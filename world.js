@@ -5,6 +5,12 @@
    Consumed by engine.js (camera/physics/input loop calls into generateWorld, setBlock,
    refreshChunkStreaming, processChunkQueue).
 
+   NOTE: streaming/spawn logic here tracks the player via the `playerPos` vector (the
+   true player position), NOT `camera.position`. The two are no longer the same thing:
+   engine.js can point the actual render camera somewhere else entirely (behind/in front
+   of the player) for third-person perspective, so world streaming must follow the player,
+   not the camera.
+
    PERFORMANCE NOTES (this file is where most of the "no lag" work lives):
    - meshList (used every frame for raycasting) used to be rebuilt with Object.values()
      on *every single* setBlock() call -- including the hundreds of thousands of calls
@@ -309,8 +315,8 @@ function unloadChunk(cx, cz) {
 // into a new chunk. Unloads happen immediately (cheap); loads are queued and
 // trickled in over the following frames (see processChunkQueue) so the game never hitches.
 function refreshChunkStreaming() {
-  const ccx = Math.floor(camera.position.x / CHUNK_SIZE);
-  const ccz = Math.floor(camera.position.z / CHUNK_SIZE);
+  const ccx = Math.floor(playerPos.x / CHUNK_SIZE);
+  const ccz = Math.floor(playerPos.z / CHUNK_SIZE);
   if (ccx === currentChunkX && ccz === currentChunkZ) return;
   currentChunkX = ccx; currentChunkZ = ccz;
 
@@ -368,7 +374,7 @@ function generateWorld(seedInput) {
   createInstancedMesh(6, MAX_LOADED_COLUMNS + EDIT_BUFFER);       // sand
   createInstancedMesh(7, EDIT_BUFFER);                            // glass (placed only)
 
-  camera.position.set(0, heightAtFn(0, 0) + 8, 0);
+  playerPos.set(0, heightAtFn(0, 0) + 8, 0);
   velocity.set(0, 0, 0);
   yVel = 0;
   isGrounded = false;
@@ -382,6 +388,9 @@ function generateWorld(seedInput) {
     queuedChunks.delete(chunkKeyOf(cx, cz));
     loadChunk(cx, cz);
   }
-  camera.position.set(0, heightAtFn(0, 0) + 8, 0);
+  playerPos.set(0, heightAtFn(0, 0) + 8, 0);
+  // Snap the render camera to the new spawn point immediately (rather than waiting
+  // for the next animate() frame) so there's never a stray frame looking at the origin.
+  if (typeof updateCameraTransform === 'function') updateCameraTransform();
   return seed;
 }
