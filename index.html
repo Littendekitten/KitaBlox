@@ -286,17 +286,7 @@
             <input type="text" id="seed-input" placeholder="Leave blank for random" maxlength="24">
             <button type="button" class="btn-dice" id="randomize-seed-btn" title="Randomize seed">🎲</button>
           </div>
-          <div class="field-hint">Same seed always makes the same terrain.</div>
-        </div>
-
-        <div class="field" style="text-align:left;">
-          <label for="world-size-select">World Size</label>
-          <select id="world-size-select">
-            <option value="16">Small (fastest)</option>
-            <option value="32" selected>Medium</option>
-            <option value="48">Large</option>
-            <option value="64">Huge</option>
-          </select>
+          <div class="field-hint">Same seed always makes the same terrain. World is infinite (bordered at ±10,000,000 blocks).</div>
         </div>
 
         <button class="btn-play is-loading-target" id="start-game-btn">
@@ -820,6 +810,25 @@
     const WATER_LEVEL = -3;
     let currentSeed = null;
 
+    // ---- Infinite streamed world ----
+    // The world has no fixed size. Terrain is generated in 16x16 chunks around the
+    // player as they move, and chunks that fall far behind get unloaded again, so the
+    // number of live blocks stays roughly constant (and small) no matter how far you walk.
+    const CHUNK_SIZE = 16;
+    const RENDER_DISTANCE = 6;              // chunks loaded outward from the player (radius)
+    const WORLD_BORDER = 10000000;          // hard block-coordinate limit (like a Minecraft world border)
+    const MAX_CHUNK_COORD = Math.floor(WORLD_BORDER / CHUNK_SIZE);
+    const MAX_LOADED_COLUMNS = (2 * RENDER_DISTANCE + 3) * (2 * RENDER_DISTANCE + 3) * CHUNK_SIZE * CHUNK_SIZE;
+    const CHUNKS_PER_FRAME = 2;             // how many chunks to generate per animation frame (keeps loading smooth, not laggy)
+
+    let heightAtFn = null;
+    let loadedChunks = new Map();  // "cx,cz" -> array of block keys owned by that chunk (for clean unload)
+    let queuedChunks = new Set();  // "cx,cz" currently waiting in chunkLoadQueue
+    let chunkLoadQueue = [];       // [{cx, cz}], closest-first
+    let currentChunkX = null, currentChunkZ = null;
+
+    function chunkKeyOf(cx, cz) { return cx + ',' + cz; }
+
     function getBlockKey(x, y, z) { return `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`; }
 
     function rebuildMeshList() {
@@ -864,6 +873,9 @@
       instanceState = {};
       for (const k in worldBlocks) delete worldBlocks[k];
       meshList = [];
+      loadedChunks = new Map();
+      queuedChunks = new Set();
+      chunkLoadQueue = [];
     }
 
     function removeInstance(type, key) {
@@ -923,66 +935,149 @@
 
     function createTree(trX, trY, trZ, rand) {
       rand = rand || Math.random;
-      for (let y = 0; y < 4; y++) setBlock(trX, trY + y, trZ, 4);
+      const placed = [];
+      for (let y = 0; y < 4; y++) {
+        setBlock(trX, trY + y, trZ, 4);
+        placed.push(getBlockKey(trX, trY + y, trZ));
+      }
       for (let lx = -2; lx <= 2; lx++) {
         for (let lz = -2; lz <= 2; lz++) {
           for (let ly = 2; ly <= 4; ly++) {
             if (Math.abs(lx) === 2 && Math.abs(lz) === 2 && rand() > 0.4) continue;
-            if (!worldBlocks[getBlockKey(trX + lx, trY + ly, trZ + lz)]) {
+            const key = getBlockKey(trX + lx, trY + ly, trZ + lz);
+            if (!worldBlocks[key]) {
               setBlock(trX + lx, trY + ly, trZ + lz, 5);
+              placed.push(key);
             }
           }
         }
       }
+      return placed;
     }
 
-    // Builds (or rebuilds) the whole world from a seed. Capacities for each block-type
-    // InstancedMesh are computed up front from the world radius, so generation never has
-    // to grow/reallocate mid-loop -- that's what keeps it lag-free even for big worlds.
-    function generateWorld(seedInput, radius) {
-      clearWorld();
-      const seed = resolveSeed(seedInput);
-      currentSeed = seed;
-      const heightAt = makeHeightFn(seed);
-      const rand = makeSeededRandom((seed ^ 0x9E3779B9) >>> 0);
+    // Generates one 16x16 chunk of terrain (+ any trees fully contained in it) and
+    // records every block key it placed, so the chunk can be cleanly unloaded later.
+    // Each chunk gets its own deterministic PRNG derived from (seed, cx, cz), so chunks
+    // generate identically no matter what order they load in.
+    function loadChunk(cx, cz) {
+      const key = chunkKeyOf(cx, cz);
+      if (loadedChunks.has(key)) return;
 
-      const R = radius;
-      const area = (2 * R + 1) * (2 * R + 1);
+      const baseX = cx * CHUNK_SIZE, baseZ = cz * CHUNK_SIZE;
+      const chunkSeed = hashSeedString(currentSeed + ':' + cx + ':' + cz);
+      const rand = makeSeededRandom(chunkSeed);
+      const blocks = [];
 
-      let maxTrees = 0;
-      for (let x = -R; x <= R; x++) {
-        for (let z = -R; z <= R; z++) {
-          if (x % 5 === 0 && z % 5 === 0 && Math.abs(x) > 2 && Math.abs(z) > 2) maxTrees++;
-        }
-      }
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+          const x = baseX + lx, z = baseZ + lz;
+          if (Math.abs(x) > WORLD_BORDER || Math.abs(z) > WORLD_BORDER) continue;
 
-      createInstancedMesh(1, area + EDIT_BUFFER);           // grass
-      createInstancedMesh(2, area * 2 + EDIT_BUFFER);        // dirt
-      createInstancedMesh(3, area * 4 + EDIT_BUFFER);        // stone
-      createInstancedMesh(4, maxTrees * 4 + EDIT_BUFFER);     // wood
-      createInstancedMesh(5, maxTrees * 75 + EDIT_BUFFER);    // leaves
-      createInstancedMesh(6, area + EDIT_BUFFER);            // sand
-      createInstancedMesh(7, EDIT_BUFFER);                    // glass (placed only)
-
-      for (let x = -R; x <= R; x++) {
-        for (let z = -R; z <= R; z++) {
-          const h = heightAt(x, z);
+          const h = heightAtFn(x, z);
           const top = h <= WATER_LEVEL ? 6 : 1; // sandy low ground, grassy elsewhere
-          setBlock(x, h, z, top);
-          setBlock(x, h - 1, z, 2);
-          setBlock(x, h - 2, z, 2);
-          for (let y = h - 3; y >= h - 6; y--) setBlock(x, y, z, 3);
+          setBlock(x, h, z, top); blocks.push(getBlockKey(x, h, z));
+          setBlock(x, h - 1, z, 2); blocks.push(getBlockKey(x, h - 1, z));
+          setBlock(x, h - 2, z, 2); blocks.push(getBlockKey(x, h - 2, z));
+          for (let y = h - 3; y >= h - 6; y--) { setBlock(x, y, z, 3); blocks.push(getBlockKey(x, y, z)); }
 
-          if (x % 5 === 0 && z % 5 === 0 && rand() > 0.5 && Math.abs(x) > 2 && Math.abs(z) > 2) {
-            createTree(x, h + 1, z, rand);
+          // Keep tree canopies (+-2) fully inside their own chunk so unloading never
+          // leaves holes in a neighboring, still-loaded chunk.
+          const inCanopyMargin = lx >= 2 && lx <= CHUNK_SIZE - 3 && lz >= 2 && lz <= CHUNK_SIZE - 3;
+          if (inCanopyMargin && x % 5 === 0 && z % 5 === 0 && rand() > 0.5 && Math.abs(x) > 2 && Math.abs(z) > 2) {
+            blocks.push(...createTree(x, h + 1, z, rand));
           }
         }
       }
 
-      camera.position.set(0, heightAt(0, 0) + 8, 0);
+      loadedChunks.set(key, blocks);
+    }
+
+    function unloadChunk(cx, cz) {
+      const key = chunkKeyOf(cx, cz);
+      const blocks = loadedChunks.get(key);
+      if (!blocks) return;
+      for (const bkey of blocks) {
+        if (worldBlocks[bkey] !== undefined) {
+          const [bx, by, bz] = bkey.split(',').map(Number);
+          setBlock(bx, by, bz, 0);
+        }
+      }
+      loadedChunks.delete(key);
+    }
+
+    // Recomputes which chunks should be loaded/unloaded whenever the player crosses
+    // into a new chunk. Unloads happen immediately (cheap); loads are queued and
+    // trickled in a couple at a time per frame so the game never hitches.
+    function refreshChunkStreaming() {
+      const ccx = Math.floor(camera.position.x / CHUNK_SIZE);
+      const ccz = Math.floor(camera.position.z / CHUNK_SIZE);
+      if (ccx === currentChunkX && ccz === currentChunkZ) return;
+      currentChunkX = ccx; currentChunkZ = ccz;
+
+      for (const key of Array.from(loadedChunks.keys())) {
+        const [cx, cz] = key.split(',').map(Number);
+        if (Math.abs(cx - ccx) > RENDER_DISTANCE + 1 || Math.abs(cz - ccz) > RENDER_DISTANCE + 1) {
+          unloadChunk(cx, cz);
+        }
+      }
+
+      const wanted = [];
+      for (let dx = -RENDER_DISTANCE; dx <= RENDER_DISTANCE; dx++) {
+        for (let dz = -RENDER_DISTANCE; dz <= RENDER_DISTANCE; dz++) {
+          const cx = ccx + dx, cz = ccz + dz;
+          if (Math.abs(cx) > MAX_CHUNK_COORD || Math.abs(cz) > MAX_CHUNK_COORD) continue;
+          const key = chunkKeyOf(cx, cz);
+          if (loadedChunks.has(key) || queuedChunks.has(key)) continue;
+          wanted.push({ cx, cz, d: dx * dx + dz * dz });
+        }
+      }
+      wanted.sort((a, b) => a.d - b.d);
+      for (const w of wanted) { chunkLoadQueue.push(w); queuedChunks.add(chunkKeyOf(w.cx, w.cz)); }
+    }
+
+    function processChunkQueue() {
+      let n = CHUNKS_PER_FRAME;
+      while (n-- > 0 && chunkLoadQueue.length) {
+        const { cx, cz } = chunkLoadQueue.shift();
+        queuedChunks.delete(chunkKeyOf(cx, cz));
+        loadChunk(cx, cz);
+      }
+    }
+
+    // (Re)starts the world from a seed: resets all streaming state, allocates fixed
+    // (generous, one-time) InstancedMesh capacities sized for RENDER_DISTANCE -- not
+    // for the whole world, since only a window of it is ever loaded at once -- and
+    // synchronously loads the chunks right around spawn so the player doesn't fall
+    // through the void while the rest streams in over the following frames.
+    function generateWorld(seedInput) {
+      clearWorld();
+      const seed = resolveSeed(seedInput);
+      currentSeed = seed;
+      heightAtFn = makeHeightFn(seed);
+
+      createInstancedMesh(1, MAX_LOADED_COLUMNS + EDIT_BUFFER);       // grass
+      createInstancedMesh(2, MAX_LOADED_COLUMNS * 2 + EDIT_BUFFER);   // dirt
+      createInstancedMesh(3, MAX_LOADED_COLUMNS * 4 + EDIT_BUFFER);   // stone
+      createInstancedMesh(4, 3000 + EDIT_BUFFER);                     // wood
+      createInstancedMesh(5, 45000 + EDIT_BUFFER);                    // leaves
+      createInstancedMesh(6, MAX_LOADED_COLUMNS + EDIT_BUFFER);       // sand
+      createInstancedMesh(7, EDIT_BUFFER);                            // glass (placed only)
+
+      camera.position.set(0, heightAtFn(0, 0) + 8, 0);
       velocity.set(0, 0, 0);
       yVel = 0;
       isGrounded = false;
+
+      currentChunkX = null; currentChunkZ = null;
+      refreshChunkStreaming();
+      const spawnRadius = 2; // chunks loaded synchronously before the world is shown
+      const spawnCount = Math.min(chunkLoadQueue.length, (2 * spawnRadius + 1) * (2 * spawnRadius + 1));
+      for (let i = 0; i < spawnCount; i++) {
+        const { cx, cz } = chunkLoadQueue.shift();
+        queuedChunks.delete(chunkKeyOf(cx, cz));
+        loadChunk(cx, cz);
+      }
+      camera.position.set(0, heightAtFn(0, 0) + 8, 0);
       return seed;
     }
 
@@ -1025,7 +1120,7 @@
 
       // Small preview world so the scene isn't empty behind the menu; the real
       // world (with the chosen seed/size) is generated when the player hits Enter World.
-      generateWorld('', 16);
+      generateWorld('');
 
       setupEvents();
       animate();
@@ -1100,8 +1195,7 @@
         // Let the spinner paint before the (synchronous) world build runs.
         setTimeout(() => {
           const seedField = document.getElementById('seed-input').value;
-          const radius = parseInt(document.getElementById('world-size-select').value, 10) || 32;
-          const usedSeed = generateWorld(seedField, radius);
+          const usedSeed = generateWorld(seedField);
 
           document.getElementById('seed-input').value = String(usedSeed);
           document.getElementById('seed-badge').textContent = 'Seed: ' + usedSeed;
@@ -1236,6 +1330,10 @@
         fpsAccum = 0; fpsFrames = 0;
       }
 
+      // Infinite-world streaming: cheap early-out unless the player crossed into a new chunk
+      refreshChunkStreaming();
+      processChunkQueue();
+
       // Clamp delta so tab-switches / hitches don't cause a huge teleport-y step
       const delta = Math.min(clock.getDelta(), 0.1);
 
@@ -1273,6 +1371,10 @@
         // Apply Z Move & Collide
         camera.position.z += velocity.z * delta;
         if (checkCollision(camera.position)) { camera.position.z -= velocity.z * delta; velocity.z = 0; }
+
+        // World border: hard stop at +-10,000,000 blocks
+        camera.position.x = Math.max(-WORLD_BORDER + 1, Math.min(WORLD_BORDER - 1, camera.position.x));
+        camera.position.z = Math.max(-WORLD_BORDER + 1, Math.min(WORLD_BORDER - 1, camera.position.z));
 
         // Gravity & Y Physics
         yVel -= GRAVITY * delta;
