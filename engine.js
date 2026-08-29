@@ -284,15 +284,15 @@ function setupEvents() {
     if (e.code === 'Space') { jumpHeld = true; e.preventDefault(); }
     if (e.key >= '1' && e.key <= '7') selectSlot(parseInt(e.key) - 1);
     // Alt and F5 both cycle the camera perspective (1st person -> 3rd person behind
-    // -> 3rd person front/selfie). Only intercepted while actually playing, so F5
-    // still refreshes the page as normal from the menu.
-    if (e.code === 'AltLeft' || e.code === 'AltRight' || e.code === 'F5') {
-      if (gameActive) {
-        e.preventDefault();
-        cyclePerspective();
-      }
+    // -> 3rd person front/selfie). preventDefault() runs unconditionally (not just
+    // while gameActive) because a lone Alt press is reserved by several browsers/OSes
+    // (e.g. to focus the menu bar) -- if we only preventDefault when playing, the
+    // browser can still swallow the keydown before cyclePerspective ever runs.
+    if (e.code === 'AltLeft' || e.code === 'AltRight' || e.key === 'Alt' || e.code === 'F5') {
+      e.preventDefault();
+      if (gameActive) cyclePerspective();
     }
-  });
+  }, { capture: true });
 
   document.addEventListener('keyup', (e) => {
     if (e.code === 'KeyW') moveF = false;
@@ -300,7 +300,13 @@ function setupEvents() {
     if (e.code === 'KeyA') moveL = false;
     if (e.code === 'KeyD') moveR = false;
     if (e.code === 'Space') jumpHeld = false;
-  });
+    // A lone Alt press's browser/OS side-effect (e.g. focusing the menu bar) actually
+    // fires on key-UP, not key-down -- so it has to be suppressed here too, or the
+    // keydown preventDefault() above isn't enough to stop it.
+    if (e.code === 'AltLeft' || e.code === 'AltRight' || e.key === 'Alt') {
+      e.preventDefault();
+    }
+  }, { capture: true });
 
   document.addEventListener('wheel', (e) => {
     if (!gameActive || isMobileDevice) return;
