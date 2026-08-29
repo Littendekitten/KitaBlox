@@ -39,6 +39,7 @@
       width: 100%; padding: 16px; background: #4ade80; border: none; border-radius: 10px;
       color: #0f172a; font-weight: 800; font-size: 16px; cursor: pointer; transition: all 0.2s ease;
       box-shadow: 0 4px 14px rgba(74, 222, 128, 0.4);
+      display: flex; align-items: center; justify-content: center; gap: 10px;
     }
     .btn-play:hover { background: #22c55e; transform: translateY(-2px); box-shadow: 0 6px 20px rgba(74, 222, 128, 0.6); }
     .btn-play:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
@@ -76,6 +77,12 @@
       background: rgba(15,23,42,0.65); padding: 6px 10px; border-radius: 8px;
     }
 
+    #seed-badge {
+      position: absolute; top: 58px; right: 20px; color: #94a3b8;
+      font-family: monospace; font-size: 11px; z-index: 5; display: none;
+      background: rgba(15,23,42,0.65); padding: 6px 10px; border-radius: 8px;
+    }
+
     /* ===================== AUTH UI ===================== */
     .auth-screen { display: none; }
     .auth-screen.active { display: block; }
@@ -109,13 +116,20 @@
 
     .field { margin-bottom: 14px; }
     .field label { display: block; font-size: 11px; font-weight: 700; color: #94a3b8; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .field input {
+    .field input, .field select {
       width: 100%; padding: 12px 14px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.12);
       background: #0f172a; color: #f8fafc; font-size: 14px; outline: none; transition: border-color .15s ease;
     }
-    .field input:focus { border-color: #4ade80; }
+    .field input:focus, .field select:focus { border-color: #4ade80; }
     .field input::placeholder { color: #475569; }
     .field-hint { font-size: 11px; color: #64748b; margin-top: 5px; }
+    .field-row { display: flex; gap: 8px; }
+    .field-row input { flex: 1; }
+    .btn-dice {
+      width: 48px; flex-shrink: 0; background: #0f172a; border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 9px; color: #f8fafc; font-size: 18px; cursor: pointer; transition: all .15s ease;
+    }
+    .btn-dice:hover { border-color: #4ade80; background: #1e293b; }
 
     .error-text {
       display: none; background: rgba(248,113,113,0.1); border: 1px solid rgba(248,113,113,0.3);
@@ -265,7 +279,30 @@
         <div class="welcome-avatar" id="welcome-avatar">?</div>
         <h1 style="font-size:28px;">Welcome, <span id="welcome-username">Player</span></h1>
         <p class="tagline">Ready to jump back into the world?</p>
-        <button class="btn-play" id="start-game-btn">ENTER WORLD</button>
+
+        <div class="field" style="text-align:left;">
+          <label for="seed-input">World Seed</label>
+          <div class="field-row">
+            <input type="text" id="seed-input" placeholder="Leave blank for random" maxlength="24">
+            <button type="button" class="btn-dice" id="randomize-seed-btn" title="Randomize seed">🎲</button>
+          </div>
+          <div class="field-hint">Same seed always makes the same terrain.</div>
+        </div>
+
+        <div class="field" style="text-align:left;">
+          <label for="world-size-select">World Size</label>
+          <select id="world-size-select">
+            <option value="16">Small (fastest)</option>
+            <option value="32" selected>Medium</option>
+            <option value="48">Large</option>
+            <option value="64">Huge</option>
+          </select>
+        </div>
+
+        <button class="btn-play is-loading-target" id="start-game-btn">
+          <span class="btn-label-text">ENTER WORLD</span>
+          <span class="spinner"></span>
+        </button>
         <button type="button" class="link-btn" id="play-signout-btn">Not you? Sign out</button>
       </div>
 
@@ -280,6 +317,7 @@
 
   <div id="crosshair"></div>
   <div id="fps-counter">FPS: --</div>
+  <div id="seed-badge">Seed: --</div>
 
   <div id="hud-instructions">
     <b style="color: #4ade80; font-size: 14px;">Controls</b><br>
@@ -287,7 +325,7 @@
     Left Click : Break Block<br>
     Right Click : Place Block<br>
     1-7 / Scroll : Hotbar<br>
-    ESC : Release mouse
+    ESC : Release mouse (change seed here too)
   </div>
 
   <div id="hotbar-container">
@@ -695,44 +733,201 @@
       7: mat(texMap.glass, true, 0.4)
     };
 
-    // 2. WORLD DATA & CHUNK MANAGEMENT
-    const worldBlocks = {};
-    const blockMeshes = {};
+    // 2. SEEDED NOISE (deterministic terrain from a single 32-bit seed, no external libs)
+    function hashSeedString(str) {
+      str = String(str);
+      let h = 1779033703 ^ str.length;
+      for (let i = 0; i < str.length; i++) {
+        h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+        h = (h << 13) | (h >>> 19);
+      }
+      h = Math.imul(h ^ (h >>> 16), 2246822519);
+      h = Math.imul(h ^ (h >>> 13), 3266489917);
+      return (h ^ (h >>> 16)) >>> 0;
+    }
+
+    function resolveSeed(input) {
+      input = (input || '').trim();
+      if (!input) return (Math.random() * 4294967296) >>> 0;
+      if (/^-?\d+$/.test(input)) return (parseInt(input, 10) >>> 0);
+      return hashSeedString(input);
+    }
+
+    // mulberry32: tiny, fast, good-enough PRNG for terrain/placement randomness
+    function makeSeededRandom(seed) {
+      let s = seed >>> 0;
+      return function () {
+        s |= 0; s = (s + 0x6D2B79F5) | 0;
+        let t = Math.imul(s ^ (s >>> 15), 1 | s);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    // Classic seeded gradient (Perlin-style) 2D noise, built from the seeded PRNG
+    function createPerlin2D(seed) {
+      const rand = makeSeededRandom(seed);
+      const p = new Uint8Array(256);
+      for (let i = 0; i < 256; i++) p[i] = i;
+      for (let i = 255; i > 0; i--) {
+        const j = Math.floor(rand() * (i + 1));
+        const tmp = p[i]; p[i] = p[j]; p[j] = tmp;
+      }
+      const perm = new Uint8Array(512);
+      for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+
+      const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
+      const lerp = (a, b, t) => a + t * (b - a);
+      const gx = [1, -1, 1, -1, 1, -1, 0, 0], gy = [1, 1, -1, -1, 0, 0, 1, -1];
+      const grad = (hash, x, y) => { const h = hash & 7; return gx[h] * x + gy[h] * y; };
+
+      return function perlin2(x, y) {
+        const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+        const xf = x - Math.floor(x), yf = y - Math.floor(y);
+        const u = fade(xf), v = fade(yf);
+        const aa = perm[perm[X] + Y], ab = perm[perm[X] + Y + 1];
+        const ba = perm[perm[X + 1] + Y], bb = perm[perm[X + 1] + Y + 1];
+        const x1 = lerp(grad(aa, xf, yf), grad(ba, xf - 1, yf), u);
+        const x2 = lerp(grad(ab, xf, yf - 1), grad(bb, xf - 1, yf - 1), u);
+        return lerp(x1, x2, v);
+      };
+    }
+
+    // Fractal sum of a few octaves for natural-looking rolling hills
+    function makeHeightFn(seed) {
+      const noise = createPerlin2D(seed);
+      return function heightAt(x, z) {
+        let h = 0;
+        h += noise(x * 0.045, z * 0.045) * 6;         // rolling hills
+        h += noise(x * 0.09 + 50, z * 0.09 + 50) * 3;  // smaller bumps
+        h += noise(x * 0.015 - 80, z * 0.015 - 80) * 5; // broad continent-scale rise
+        return Math.round(h);
+      };
+    }
+
+    // 3. WORLD DATA & GPU-INSTANCED CHUNK RENDERING
+    // Instead of one THREE.Mesh per block (which chokes the renderer once you have
+    // more than a few thousand blocks), each block *type* gets a single
+    // THREE.InstancedMesh. Adding/removing a block just writes one 4x4 matrix into
+    // that type's instance buffer, so worlds with tens of thousands of blocks stay smooth.
+    const worldBlocks = {};       // "x,y,z" -> block type (source of truth, used for physics/lookups)
     const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-    let meshList = []; // cached array for raycasting, rebuilt only when world changes
+    let instancedMeshes = {};     // type -> THREE.InstancedMesh
+    let instanceState = {};       // type -> { capacity, count, keyToIndex, indexToKey }
+    let meshList = [];            // cached array of instanced meshes, for raycasting
+    const dummy = new THREE.Object3D();
+    const EDIT_BUFFER = 3000;     // spare instance slots per type reserved for player building
+    const WATER_LEVEL = -3;
+    let currentSeed = null;
 
     function getBlockKey(x, y, z) { return `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`; }
 
     function rebuildMeshList() {
-      meshList = Object.values(blockMeshes);
+      meshList = Object.values(instancedMeshes);
     }
 
-    function setBlock(x, y, z, type) {
-      const key = getBlockKey(x, y, z);
-      if (type === 0) {
-        if (blockMeshes[key]) {
-          scene.remove(blockMeshes[key]);
-          delete blockMeshes[key];
-          delete worldBlocks[key];
-        }
-      } else {
-        if (blockMeshes[key]) scene.remove(blockMeshes[key]);
-        const mesh = new THREE.Mesh(boxGeo, blockMaterials[type]);
-        mesh.position.set(x, y, z);
-        mesh.userData = { x, y, z, type };
-        scene.add(mesh);
-        blockMeshes[key] = mesh;
-        worldBlocks[key] = type;
+    function createInstancedMesh(type, capacity) {
+      capacity = Math.max(capacity, EDIT_BUFFER);
+      const meshInst = new THREE.InstancedMesh(boxGeo, blockMaterials[type], capacity);
+      meshInst.count = 0;
+      meshInst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      meshInst.frustumCulled = false; // shared 1-unit box geometry has a tiny bounding sphere; avoid wrongly culling the whole world
+      meshInst.userData.type = type;
+      scene.add(meshInst);
+      instancedMeshes[type] = meshInst;
+      instanceState[type] = { capacity, count: 0, keyToIndex: new Map(), indexToKey: new Map() };
+      return meshInst;
+    }
+
+    function growInstancedMesh(type, newCapacity) {
+      const oldMesh = instancedMeshes[type];
+      const state = instanceState[type];
+      const newMesh = new THREE.InstancedMesh(boxGeo, blockMaterials[type], newCapacity);
+      newMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      newMesh.frustumCulled = false;
+      newMesh.userData.type = type;
+      for (let i = 0; i < state.count; i++) {
+        oldMesh.getMatrixAt(i, dummy.matrix);
+        newMesh.setMatrixAt(i, dummy.matrix);
       }
+      newMesh.count = state.count;
+      scene.remove(oldMesh);
+      scene.add(newMesh);
+      instancedMeshes[type] = newMesh;
+      state.capacity = newCapacity;
       rebuildMeshList();
     }
 
-    function createTree(trX, trY, trZ) {
+    function clearWorld() {
+      Object.values(instancedMeshes).forEach(m => scene.remove(m));
+      instancedMeshes = {};
+      instanceState = {};
+      for (const k in worldBlocks) delete worldBlocks[k];
+      meshList = [];
+    }
+
+    function removeInstance(type, key) {
+      const state = instanceState[type];
+      if (!state) return;
+      const idx = state.keyToIndex.get(key);
+      if (idx === undefined) return;
+      const meshInst = instancedMeshes[type];
+      const lastIdx = state.count - 1;
+      if (idx !== lastIdx) {
+        meshInst.getMatrixAt(lastIdx, dummy.matrix);
+        meshInst.setMatrixAt(idx, dummy.matrix);
+        const lastKey = state.indexToKey.get(lastIdx);
+        state.keyToIndex.set(lastKey, idx);
+        state.indexToKey.set(idx, lastKey);
+      }
+      state.keyToIndex.delete(key);
+      state.indexToKey.delete(lastIdx);
+      state.count--;
+      meshInst.count = state.count;
+      meshInst.instanceMatrix.needsUpdate = true;
+    }
+
+    function addInstance(type, key, x, y, z) {
+      let state = instanceState[type];
+      if (!state) createInstancedMesh(type, EDIT_BUFFER), state = instanceState[type];
+      if (state.count >= state.capacity) growInstancedMesh(type, state.capacity + 1000), state = instanceState[type];
+      const meshInst = instancedMeshes[type];
+      const idx = state.count;
+      dummy.position.set(x, y, z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      meshInst.setMatrixAt(idx, dummy.matrix);
+      state.keyToIndex.set(key, idx);
+      state.indexToKey.set(idx, key);
+      state.count++;
+      meshInst.count = state.count;
+      meshInst.instanceMatrix.needsUpdate = true;
+    }
+
+    function setBlock(x, y, z, type) {
+      x = Math.floor(x); y = Math.floor(y); z = Math.floor(z);
+      const key = getBlockKey(x, y, z);
+      const existingType = worldBlocks[key];
+      if (existingType !== undefined) removeInstance(existingType, key);
+
+      if (type === 0) {
+        delete worldBlocks[key];
+        rebuildMeshList();
+        return;
+      }
+      worldBlocks[key] = type;
+      addInstance(type, key, x, y, z);
+      rebuildMeshList();
+    }
+
+    function createTree(trX, trY, trZ, rand) {
+      rand = rand || Math.random;
       for (let y = 0; y < 4; y++) setBlock(trX, trY + y, trZ, 4);
       for (let lx = -2; lx <= 2; lx++) {
         for (let lz = -2; lz <= 2; lz++) {
           for (let ly = 2; ly <= 4; ly++) {
-            if (Math.abs(lx) === 2 && Math.abs(lz) === 2 && Math.random() > 0.4) continue;
+            if (Math.abs(lx) === 2 && Math.abs(lz) === 2 && rand() > 0.4) continue;
             if (!worldBlocks[getBlockKey(trX + lx, trY + ly, trZ + lz)]) {
               setBlock(trX + lx, trY + ly, trZ + lz, 5);
             }
@@ -741,7 +936,57 @@
       }
     }
 
-    // 3. ENGINE & SCENE SETUP
+    // Builds (or rebuilds) the whole world from a seed. Capacities for each block-type
+    // InstancedMesh are computed up front from the world radius, so generation never has
+    // to grow/reallocate mid-loop -- that's what keeps it lag-free even for big worlds.
+    function generateWorld(seedInput, radius) {
+      clearWorld();
+      const seed = resolveSeed(seedInput);
+      currentSeed = seed;
+      const heightAt = makeHeightFn(seed);
+      const rand = makeSeededRandom((seed ^ 0x9E3779B9) >>> 0);
+
+      const R = radius;
+      const area = (2 * R + 1) * (2 * R + 1);
+
+      let maxTrees = 0;
+      for (let x = -R; x <= R; x++) {
+        for (let z = -R; z <= R; z++) {
+          if (x % 5 === 0 && z % 5 === 0 && Math.abs(x) > 2 && Math.abs(z) > 2) maxTrees++;
+        }
+      }
+
+      createInstancedMesh(1, area + EDIT_BUFFER);           // grass
+      createInstancedMesh(2, area * 2 + EDIT_BUFFER);        // dirt
+      createInstancedMesh(3, area * 4 + EDIT_BUFFER);        // stone
+      createInstancedMesh(4, maxTrees * 4 + EDIT_BUFFER);     // wood
+      createInstancedMesh(5, maxTrees * 75 + EDIT_BUFFER);    // leaves
+      createInstancedMesh(6, area + EDIT_BUFFER);            // sand
+      createInstancedMesh(7, EDIT_BUFFER);                    // glass (placed only)
+
+      for (let x = -R; x <= R; x++) {
+        for (let z = -R; z <= R; z++) {
+          const h = heightAt(x, z);
+          const top = h <= WATER_LEVEL ? 6 : 1; // sandy low ground, grassy elsewhere
+          setBlock(x, h, z, top);
+          setBlock(x, h - 1, z, 2);
+          setBlock(x, h - 2, z, 2);
+          for (let y = h - 3; y >= h - 6; y--) setBlock(x, y, z, 3);
+
+          if (x % 5 === 0 && z % 5 === 0 && rand() > 0.5 && Math.abs(x) > 2 && Math.abs(z) > 2) {
+            createTree(x, h + 1, z, rand);
+          }
+        }
+      }
+
+      camera.position.set(0, heightAt(0, 0) + 8, 0);
+      velocity.set(0, 0, 0);
+      yVel = 0;
+      isGrounded = false;
+      return seed;
+    }
+
+    // 4. ENGINE & SCENE SETUP
     let scene, camera, renderer, controls, raycaster, highlightBox;
     let particles = [];
     let activeBlockType = 1;
@@ -778,27 +1023,15 @@
       highlightBox.visible = false;
       scene.add(highlightBox);
 
-      // Generate World
-      for (let x = -12; x <= 12; x++) {
-        for (let z = -12; z <= 12; z++) {
-          let h = Math.floor(Math.sin(x * 0.15) * Math.cos(z * 0.15) * 3);
-          setBlock(x, h, z, 1);
-          setBlock(x, h - 1, z, 2);
-          setBlock(x, h - 2, z, 2);
-          for (let y = h - 3; y >= h - 6; y--) setBlock(x, y, z, 3);
+      // Small preview world so the scene isn't empty behind the menu; the real
+      // world (with the chosen seed/size) is generated when the player hits Enter World.
+      generateWorld('', 16);
 
-          if (x % 5 === 0 && z % 5 === 0 && Math.random() > 0.5 && Math.abs(x) > 2 && Math.abs(z) > 2) {
-            createTree(x, h + 1, z);
-          }
-        }
-      }
-
-      camera.position.set(0, 6, 0);
       setupEvents();
       animate();
     }
 
-    // 4. PARTICLE EFFECTS
+    // 5. PARTICLE EFFECTS
     function spawnBreakParticles(x, y, z, type) {
       const pGeo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
       const pMat = Array.isArray(blockMaterials[type]) ? blockMaterials[type][0] : blockMaterials[type];
@@ -838,7 +1071,7 @@
       }
     }
 
-    // 5. INPUTS & HOTBAR
+    // 6. INPUTS & HOTBAR
     let moveF = false, moveB = false, moveL = false, moveR = false, jumpHeld = false;
     let velocity = new THREE.Vector3();
     let yVel = 0, isGrounded = false;
@@ -862,12 +1095,31 @@
 
     function setupEvents() {
       document.getElementById('start-game-btn').addEventListener('click', () => {
-        document.getElementById('menu-overlay').style.display = 'none';
-        document.getElementById('crosshair').style.display = 'block';
-        document.getElementById('hud-instructions').style.display = 'block';
-        document.getElementById('hotbar-container').style.display = 'flex';
-        document.getElementById('fps-counter').style.display = 'block';
-        controls.lock();
+        const btn = document.getElementById('start-game-btn');
+        setLoading(btn, true);
+        // Let the spinner paint before the (synchronous) world build runs.
+        setTimeout(() => {
+          const seedField = document.getElementById('seed-input').value;
+          const radius = parseInt(document.getElementById('world-size-select').value, 10) || 32;
+          const usedSeed = generateWorld(seedField, radius);
+
+          document.getElementById('seed-input').value = String(usedSeed);
+          document.getElementById('seed-badge').textContent = 'Seed: ' + usedSeed;
+
+          document.getElementById('menu-overlay').style.display = 'none';
+          document.getElementById('crosshair').style.display = 'block';
+          document.getElementById('hud-instructions').style.display = 'block';
+          document.getElementById('hotbar-container').style.display = 'flex';
+          document.getElementById('fps-counter').style.display = 'block';
+          document.getElementById('seed-badge').style.display = 'block';
+
+          setLoading(btn, false);
+          controls.lock();
+        }, 20);
+      });
+
+      document.getElementById('randomize-seed-btn').addEventListener('click', () => {
+        document.getElementById('seed-input').value = String((Math.random() * 1e9) | 0);
       });
 
       controls.addEventListener('unlock', () => {
@@ -905,17 +1157,20 @@
 
         if (hits.length > 0) {
           const hit = hits[0];
-          const pos = hit.object.position;
+          const type = hit.object.userData.type;
+          const state = instanceState[type];
+          const key = state && state.indexToKey.get(hit.instanceId);
+          if (!key) return;
+          const [bx, by, bz] = key.split(',').map(Number);
 
           if (e.button === 0) { // Left Click: Break
-            const bType = worldBlocks[getBlockKey(pos.x, pos.y, pos.z)];
-            spawnBreakParticles(pos.x, pos.y, pos.z, bType);
-            setBlock(pos.x, pos.y, pos.z, 0);
+            spawnBreakParticles(bx, by, bz, type);
+            setBlock(bx, by, bz, 0);
           } else if (e.button === 2) { // Right Click: Place
-            const norm = hit.face.normal;
-            const px = pos.x + norm.x;
-            const py = pos.y + norm.y;
-            const pz = pos.z + norm.z;
+            const norm = hit.face.normal; // box instances are unrotated, so local normal == world normal
+            const px = bx + Math.round(norm.x);
+            const py = by + Math.round(norm.y);
+            const pz = bz + Math.round(norm.z);
 
             // AABB Check against player position
             const playerBox = new THREE.Box3().setFromCenterAndSize(
@@ -943,7 +1198,7 @@
       slots.forEach((s, i) => s.classList.toggle('active', i === idx));
     }
 
-    // 6. PHYSICS & GAME LOOP
+    // 7. PHYSICS & GAME LOOP
     function checkCollision(pos) {
       const pBox = new THREE.Box3().setFromCenterAndSize(
         new THREE.Vector3(pos.x, pos.y - 0.7, pos.z),
@@ -1040,8 +1295,17 @@
         raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
         const hits = raycaster.intersectObjects(meshList);
         if (hits.length > 0) {
-          highlightBox.position.copy(hits[0].object.position);
-          highlightBox.visible = true;
+          const hit = hits[0];
+          const type = hit.object.userData.type;
+          const state = instanceState[type];
+          const key = state && state.indexToKey.get(hit.instanceId);
+          if (key) {
+            const [bx, by, bz] = key.split(',').map(Number);
+            highlightBox.position.set(bx, by, bz);
+            highlightBox.visible = true;
+          } else {
+            highlightBox.visible = false;
+          }
         } else {
           highlightBox.visible = false;
         }
